@@ -160,7 +160,12 @@ export function updateProjectiles(projectiles: Projectile[], world: World, dt: n
 }
 
 function projectileHitsPlatform(proj: Projectile, plat: Platform): boolean {
-  // Circle vs AABB
+  if (proj.type === 'spirit_bomb') {
+    // Spirit bomb detonates when its CENTER enters a platform
+    return proj.x >= plat.x && proj.x <= plat.x + plat.w &&
+           proj.y >= plat.y && proj.y <= plat.y + plat.h;
+  }
+  // Circle vs AABB for other projectiles
   const cx = Math.max(plat.x, Math.min(proj.x, plat.x + plat.w));
   const cy = Math.max(plat.y, Math.min(proj.y, plat.y + plat.h));
   const dx = proj.x - cx;

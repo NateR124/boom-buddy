@@ -82,7 +82,7 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function getPose(player: Player, time: number): Skeleton {
+function getPose(player: Player, time: number, chargingSpirit?: boolean): Skeleton {
   const f = player.facing; // 1 = right, -1 = left
   const speed = Math.abs(player.vx);
   const vy = player.vy;
@@ -118,7 +118,9 @@ function getPose(player: Player, time: number): Skeleton {
     footR: [HIP_W * rScale + turnOffset * 0.2, HIP_Y + UPPER_LEG + LOWER_LEG],
   };
 
-  if (!grounded && vy < -50) {
+  if (chargingSpirit) {
+    applySpiritCharge(skel, f, time);
+  } else if (!grounded && vy < -50) {
     applyJumpRise(skel, f);
   } else if (!grounded && vy > 50) {
     applyFalling(skel, f);
@@ -132,6 +134,40 @@ function getPose(player: Player, time: number): Skeleton {
   }
 
   return skel;
+}
+
+function applySpiritCharge(s: Skeleton, facing: number, time: number) {
+  // Dramatic arms-up pose — holding the spirit bomb overhead
+  // Slight strain tremor for visual energy
+  const tremor = Math.sin(time * 30) * 0.6;
+  const sway = Math.sin(time * 4) * 1.0;
+
+  // Both arms reaching up, elbows bent outward, hands close together above head
+  s.elbowL[0] = s.shoulderL[0] - 5 + tremor;
+  s.elbowL[1] = s.shoulderL[1] - 10;
+  s.handL[0] = s.shoulderL[0] + 1 + tremor;
+  s.handL[1] = s.shoulderL[1] - 18;
+
+  s.elbowR[0] = s.shoulderR[0] + 5 + tremor;
+  s.elbowR[1] = s.shoulderR[1] - 10;
+  s.handR[0] = s.shoulderR[0] - 1 + tremor;
+  s.handR[1] = s.shoulderR[1] - 18;
+
+  // Lean back slightly from the effort
+  s.head[0] += -facing * 1 + sway;
+  s.head[1] -= 1;
+  s.neck[0] += -facing * 0.5 + sway * 0.5;
+
+  // Legs planted wide in a power stance
+  s.kneeL[0] = s.hipL[0] - 2;
+  s.kneeL[1] = s.hipL[1] + UPPER_LEG;
+  s.footL[0] = s.hipL[0] - 4;
+  s.footL[1] = s.hipL[1] + UPPER_LEG + LOWER_LEG;
+
+  s.kneeR[0] = s.hipR[0] + 2;
+  s.kneeR[1] = s.hipR[1] + UPPER_LEG;
+  s.footR[0] = s.hipR[0] + 4;
+  s.footR[1] = s.hipR[1] + UPPER_LEG + LOWER_LEG;
 }
 
 function applyIdle(s: Skeleton, facing: number, time: number) {
@@ -373,6 +409,7 @@ export function renderPlayer(
   device: GPUDevice,
   player: Player,
   time: number,
+  chargingSpirit?: boolean,
 ) {
   if (player.dead) return;
 
@@ -383,7 +420,7 @@ export function renderPlayer(
   const cx = player.x;
   const cy = player.y;
 
-  const skel = getPose(player, time);
+  const skel = getPose(player, time, chargingSpirit);
 
   const bodyColor: Color = [0.95, 0.95, 0.95];
   const jointColor: Color = [0.7, 0.8, 0.9];

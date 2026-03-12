@@ -213,7 +213,8 @@ async function main() {
     });
 
     renderPlatforms(pass, platRenderer);
-    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime);
+    const chargingSpirit = charge.charging && charge.chargeType === 'spirit';
+    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, chargingSpirit);
 
     // Render projectile shapes
     const spiritR = (charge.charging && charge.chargeType === 'spirit') ? charge.spiritRadius : 0;
