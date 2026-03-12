@@ -410,6 +410,8 @@ export function renderPlayer(
   player: Player,
   time: number,
   chargingSpirit?: boolean,
+  cameraX = 0,
+  cameraY = 0,
 ) {
   if (player.dead) return;
 
@@ -417,8 +419,8 @@ export function renderPlayer(
   if (player.invulnTimer > 0 && Math.floor(time * 10) % 2 === 0) return;
 
   const verts: number[] = [];
-  const cx = player.x;
-  const cy = player.y;
+  const cx = player.x + cameraX;
+  const cy = player.y + cameraY;
 
   const skel = getPose(player, time, chargingSpirit);
 

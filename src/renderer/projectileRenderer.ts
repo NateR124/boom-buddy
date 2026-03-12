@@ -114,18 +114,20 @@ export function renderProjectiles(
   spiritChargeY: number,
   spiritChargeRadius: number,
   time: number,
+  cameraX = 0,
+  cameraY = 0,
 ) {
   const verts: number[] = [];
 
   // Render active projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
-    drawSpiritBomb(verts, p.x, p.y, p.radius, time, 1.0);
+    drawSpiritBomb(verts, p.x + cameraX, p.y + cameraY, p.radius, time, 1.0);
   }
 
   // Render spirit bomb charge sphere (above player during charge)
   if (spiritChargeRadius > 0) {
-    drawSpiritBomb(verts, spiritChargeX, spiritChargeY, spiritChargeRadius, time, 0.8);
+    drawSpiritBomb(verts, spiritChargeX + cameraX, spiritChargeY + cameraY, spiritChargeRadius, time, 0.8);
   }
 
   if (verts.length === 0) return;
@@ -143,12 +145,16 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
   const pulse = 1 + Math.sin(time * 8) * 0.08;
   const r = radius * pulse;
 
+  // Bloom halo — very large, very faint (additive blending makes it glow)
+  drawCircle(verts, x, y, r * 2.0, 20, [1.0, 0.4, 0.05, 0.08 * alpha]);
   // Outer glow
-  drawCircle(verts, x, y, r * 1.3, 16, [1.0, 0.5, 0.1, 0.2 * alpha]);
+  drawCircle(verts, x, y, r * 1.4, 16, [1.0, 0.5, 0.1, 0.25 * alpha]);
   // Mid layer
-  drawCircle(verts, x, y, r, 14, [1.0, 0.7, 0.2, 0.5 * alpha]);
-  // Core
-  drawCircle(verts, x, y, r * 0.5, 10, [1.0, 0.95, 0.8, 0.9 * alpha]);
+  drawCircle(verts, x, y, r, 14, [1.0, 0.7, 0.2, 0.55 * alpha]);
+  // Inner bright
+  drawCircle(verts, x, y, r * 0.65, 12, [1.0, 0.9, 0.5, 0.7 * alpha]);
+  // Core — hot white
+  drawCircle(verts, x, y, r * 0.35, 10, [1.0, 0.97, 0.9, 0.95 * alpha]);
 }
 
 function drawCircle(verts: number[], cx: number, cy: number, r: number, segs: number, color: [number, number, number, number]) {

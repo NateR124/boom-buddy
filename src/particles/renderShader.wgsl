@@ -3,6 +3,7 @@
 
 struct Uniforms {
   resolution: vec2f,
+  cameraOffset: vec2f,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -53,7 +54,7 @@ fn vs_main(
   let a = particles[base + 7u];
 
   let corner = QUAD_POS[vertexIndex % 6u];
-  let worldPos = vec2f(px + corner.x * size, py + corner.y * size);
+  let worldPos = vec2f(px + corner.x * size + uniforms.cameraOffset.x, py + corner.y * size + uniforms.cameraOffset.y);
 
   let ndc = vec2f(
     (worldPos.x / uniforms.resolution.x) * 2.0 - 1.0,

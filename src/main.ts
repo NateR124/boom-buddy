@@ -18,6 +18,7 @@ import {
   getSpiritBombRadius, getSpiritBombCenterY,
 } from './physics/projectile';
 import { InputState } from './input';
+import { createCamera, addShake, updateShake } from './camera';
 
 const FIXED_DT = 1 / 60;
 const MAX_PARTICLES = 4096;
@@ -40,6 +41,7 @@ async function main() {
   const player = createPlayer(world.spawnPoint.x, world.spawnPoint.y);
   const charge = createChargeState();
   const projectiles: Projectile[] = [];
+  const camera = createCamera();
 
   // Create terrain grid from platform definitions
   const terrain = createTerrainGrid(world.platforms);
@@ -66,13 +68,11 @@ async function main() {
     // Respawn burst — fires when player transitions from dead to alive
     if (prevDead && !player.dead) {
       emitRespawnBurst(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y);
-
     }
 
     // Death burst — fires when player just died
     if (!prevDead && player.dead) {
       emitRespawnBurst(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y);
-
     }
 
     if (player.dead) return;
@@ -94,7 +94,7 @@ async function main() {
       }
     }
 
-    // Update projectiles (now does terrain collision + crater carving)
+    // Update projectiles (does terrain collision + crater carving)
     const hits = updateProjectiles(projectiles, world, terrain, dt);
 
     // Projectile trail particles
@@ -103,15 +103,20 @@ async function main() {
       emitProjectileTrail(particleSys.cpuData, MAX_PARTICLES, cursor, p.x, p.y, p.level);
     }
 
-    // Impact explosions + terrain debris
+    // Impact explosions + terrain debris + screen shake
     for (const { proj, carve } of hits) {
       emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, proj.power);
       if (carve.count > 0) {
         emitTerrainDebris(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, carve.count);
       }
+      // Screen shake proportional to impact power
+      const shakeIntensity = 4 + proj.power * 12;
+      const shakeDuration = 0.2 + proj.power * 0.3;
+      addShake(camera, shakeIntensity, shakeDuration);
     }
 
-    // (cellular automata removed — debris scatters as particles instead)
+    // Update camera shake
+    updateShake(camera, dt);
 
     // Clean up dead projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -163,6 +168,10 @@ async function main() {
     }
     if (ticked) clearFrameInput();
 
+    // Camera shake offset for this frame
+    const sx = camera.shakeX;
+    const sy = camera.shakeY;
+
     // Upload only newly-emitted particle slots to GPU (avoids resurrecting dead particles)
     if (cursor.value > frameCursorStart) {
       uploadParticleRange(gpu.device, particleSys, frameCursorStart, cursor.value);
@@ -194,24 +203,27 @@ async function main() {
     const pass = commandEncoder.beginRenderPass({
       colorAttachments: [{
         view: textureView,
-        clearValue: { r: 0.08, g: 0.08, b: 0.14, a: 1.0 },
+        clearValue: { r: 0.02, g: 0.02, b: 0.08, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store',
       }],
     });
 
-    // Upload terrain grid and render
-    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height);
+    // Upload terrain grid and render (with camera shake)
+    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, sx, sy);
     renderTerrain(pass, terrainRenderData);
-    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, charge.charging);
 
-    // Render projectile shapes
+    // Render player with camera shake offset
+    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, charge.charging, sx, sy);
+
+    // Render projectile shapes with camera shake offset
     const spiritR = charge.charging ? charge.spiritRadius : 0;
     const spiritX = player.x;
     const spiritY = spiritR > 0 ? getSpiritBombCenterY(player.y, spiritR) : player.y;
-    renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime);
+    renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy);
 
-    // Render particles (additive blend, drawn last)
+    // Render particles (additive blend, drawn last) — update uniform with camera offset
+    updateParticleUniforms(gpu.device, particleSys, gpu.canvas.width, gpu.canvas.height, sx, sy);
     renderParticles(pass, particleSys);
 
     pass.end();
@@ -221,6 +233,11 @@ async function main() {
   }
 
   requestAnimationFrame(loop);
+}
+
+// Helper to update particle render uniform with camera offset
+function updateParticleUniforms(device: GPUDevice, ps: { uniformBuffer: GPUBuffer }, w: number, h: number, sx: number, sy: number) {
+  device.queue.writeBuffer(ps.uniformBuffer, 0, new Float32Array([w, h, sx, sy]));
 }
 
 main();
