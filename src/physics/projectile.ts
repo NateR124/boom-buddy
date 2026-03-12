@@ -25,6 +25,33 @@ export interface ChargeState {
 const CHARGE_SHOT_SPEED = 600;
 const SPIRIT_BOMB_BASE_SPEED = 200;
 
+// Spirit bomb positioning: bottom of sphere sits this far above the player center
+const SPIRIT_BOMB_GAP = 20;
+
+// Area growth rate in px²/s — constant rate of "energy absorption"
+const SPIRIT_BOMB_AREA_PER_SEC = 3000;
+const SPIRIT_BOMB_INITIAL_RADIUS = 5;
+// No max radius cap — charge as long as you dare
+
+/**
+ * Compute spirit bomb radius from charge time.
+ * Area grows at a constant rate: A(t) = A₀ + k*t
+ * So r(t) = sqrt(A(t) / π) = sqrt((π*r₀² + k*t) / π)
+ */
+export function getSpiritBombRadius(chargeTime: number): number {
+  const a0 = Math.PI * SPIRIT_BOMB_INITIAL_RADIUS * SPIRIT_BOMB_INITIAL_RADIUS;
+  const area = a0 + SPIRIT_BOMB_AREA_PER_SEC * chargeTime;
+  return Math.sqrt(area / Math.PI);
+}
+
+/**
+ * Get the center Y of the spirit bomb given player Y and current radius.
+ * Bottom of the sphere sits at a fixed gap above the player.
+ */
+export function getSpiritBombCenterY(playerY: number, radius: number): number {
+  return playerY - SPIRIT_BOMB_GAP - radius;
+}
+
 export function createChargeState(): ChargeState {
   return {
     charging: false,
@@ -74,16 +101,17 @@ export function fireSpiritBomb(
   px: number, py: number,
   facing: number,
 ): Projectile {
-  // Bigger = slower
-  const sizeScale = Math.min(spiritRadius / 40, 1);
-  const speed = SPIRIT_BOMB_BASE_SPEED * (1 - sizeScale * 0.6);
+  // Bigger = slower (scale relative to a "large" bomb ~60px radius)
+  const sizeScale = Math.min(spiritRadius / 60, 1);
+  const speed = SPIRIT_BOMB_BASE_SPEED * (1 - sizeScale * 0.7);
 
   // Launch at 45° downward in facing direction
   const angle = facing === 1 ? Math.PI * 0.25 : Math.PI * 0.75;
+  const centerY = getSpiritBombCenterY(py, spiritRadius);
 
   return {
     x: px,
-    y: py - 30,
+    y: centerY,
     vx: Math.cos(angle) * speed * facing,
     vy: Math.abs(Math.sin(angle) * speed),
     radius: spiritRadius,
