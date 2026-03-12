@@ -206,3 +206,41 @@ export function emitSpiritBombOrbit(
     attractors: true,
   });
 }
+
+export function emitTerrainDebris(
+  data: Float32Array, max: number, cursor: { value: number },
+  px: number, py: number, cellCount: number,
+) {
+  // Scale particle count with crater size, cap to avoid flooding
+  const count = Math.min(Math.floor(8 + cellCount * 0.4), 60);
+  const speed = 60 + Math.min(cellCount, 100) * 1.5;
+
+  // Mix of dirt-brown and grass-green particles
+  emitParticles(data, max, cursor, {
+    x: px, y: py,
+    count: Math.floor(count * 0.7),
+    spread: 6,
+    speedMin: speed * 0.4, speedMax: speed,
+    angleMin: -Math.PI, angleMax: 0, // upward hemisphere
+    lifeMin: 0.3, lifeMax: 0.9,
+    sizeMin: 2, sizeMax: 5,
+    color: [0.45, 0.30, 0.14],
+    colorVar: 0.1,
+    gravity: true,
+    damping: true,
+  });
+
+  emitParticles(data, max, cursor, {
+    x: px, y: py,
+    count: Math.floor(count * 0.3),
+    spread: 4,
+    speedMin: speed * 0.5, speedMax: speed * 1.2,
+    angleMin: -Math.PI, angleMax: 0,
+    lifeMin: 0.2, lifeMax: 0.6,
+    sizeMin: 1.5, sizeMax: 3.5,
+    color: [0.28, 0.50, 0.22],
+    colorVar: 0.08,
+    gravity: true,
+    damping: true,
+  });
+}

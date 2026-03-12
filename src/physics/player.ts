@@ -1,5 +1,7 @@
 import { InputState } from '../input';
-import { Platform, World } from './world';
+import { World } from './world';
+import { TerrainGrid } from '../terrain/grid';
+import { resolvePlayerTerrainCollision } from '../terrain/terrainCollision';
 
 export interface Player {
   x: number;
@@ -53,7 +55,7 @@ export function createPlayer(x: number, y: number): Player {
   };
 }
 
-export function updatePlayer(player: Player, input: InputState, world: World, dt: number) {
+export function updatePlayer(player: Player, input: InputState, world: World, terrain: TerrainGrid, dt: number) {
   // Handle respawn timer
   if (player.dead) {
     player.respawnTimer -= dt;
@@ -136,11 +138,9 @@ export function updatePlayer(player: Player, input: InputState, world: World, dt
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
-  // Platform collision
+  // Terrain collision
   player.grounded = false;
-  for (const plat of world.platforms) {
-    resolveCollision(player, plat);
-  }
+  resolvePlayerTerrainCollision(player, terrain);
 
   // Reset jump held when landing
   if (player.grounded) {
@@ -155,44 +155,6 @@ export function updatePlayer(player: Player, input: InputState, world: World, dt
     player.y > world.killZone.bottom
   ) {
     killPlayer(player);
-  }
-}
-
-function resolveCollision(player: Player, plat: Platform) {
-  const pl = player.x - player.w / 2;
-  const pr = player.x + player.w / 2;
-  const pt = player.y - player.h / 2;
-  const pb = player.y + player.h / 2;
-
-  // Check AABB overlap
-  if (pr <= plat.x || pl >= plat.x + plat.w) return;
-  if (pb <= plat.y || pt >= plat.y + plat.h) return;
-
-  // Calculate overlap on each axis
-  const overlapLeft = pr - plat.x;
-  const overlapRight = (plat.x + plat.w) - pl;
-  const overlapTop = pb - plat.y;
-  const overlapBottom = (plat.y + plat.h) - pt;
-
-  const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-
-  if (minOverlap === overlapTop && player.vy >= 0) {
-    // Landing on top
-    player.y = plat.y - player.h / 2;
-    player.vy = 0;
-    player.grounded = true;
-  } else if (minOverlap === overlapBottom && player.vy < 0) {
-    // Hitting ceiling
-    player.y = plat.y + plat.h + player.h / 2;
-    player.vy = 0;
-  } else if (minOverlap === overlapLeft) {
-    // Hitting left side of platform
-    player.x = plat.x - player.w / 2;
-    player.vx = 0;
-  } else if (minOverlap === overlapRight) {
-    // Hitting right side of platform
-    player.x = plat.x + plat.w + player.w / 2;
-    player.vx = 0;
   }
 }
 

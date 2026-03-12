@@ -25,6 +25,11 @@ export function initInput() {
     keys.delete(e.code);
     justReleased.add(e.code);
   });
+
+  // Clear all held keys when window loses focus to prevent stuck movement
+  window.addEventListener('blur', () => {
+    keys.clear();
+  });
 }
 
 export function getInput(): InputState {

@@ -2,13 +2,14 @@ import { initGpu } from './renderer/gpu';
 import { initInput, getInput, clearFrameInput } from './input';
 import { createWorld } from './physics/world';
 import { createPlayer, updatePlayer, Player } from './physics/player';
-import { createPlatformRenderer, renderPlatforms } from './renderer/platformRenderer';
 import { createPlayerRenderer, renderPlayer } from './renderer/playerRenderer';
 import { createParticleSystem, uploadParticleRange, uploadAttractors, updateParticlesGPU, renderParticles, AttractorDef } from './renderer/particleRenderer';
 import { createProjectileRenderer, renderProjectiles } from './renderer/projectileRenderer';
+import { createTerrainRenderer, uploadTerrainGrid, renderTerrain } from './renderer/terrainRenderer';
+import { createTerrainGrid, stepAutomata } from './terrain/grid';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
-  emitRespawnBurst, emitSpiritBombOrbit,
+  emitRespawnBurst, emitSpiritBombOrbit, emitTerrainDebris,
 } from './particles/emitter';
 import {
   Projectile, ChargeState, createChargeState,
@@ -40,8 +41,11 @@ async function main() {
   const charge = createChargeState();
   const projectiles: Projectile[] = [];
 
+  // Create terrain grid from platform definitions
+  const terrain = createTerrainGrid(world.platforms);
+
   // Create renderers
-  const platRenderer = createPlatformRenderer(gpu, world.platforms);
+  const terrainRenderData = createTerrainRenderer(gpu);
   const playerRendererData = createPlayerRenderer(gpu);
   const particleSys = createParticleSystem(gpu, MAX_PARTICLES);
   const projRenderer = createProjectileRenderer(gpu);
@@ -57,7 +61,7 @@ async function main() {
 
   function tick(input: InputState, dt: number) {
     const prevDead = player.dead;
-    updatePlayer(player, input, world, dt);
+    updatePlayer(player, input, world, terrain, dt);
 
     // Respawn burst — fires when player transitions from dead to alive
     if (prevDead && !player.dead) {
@@ -92,21 +96,25 @@ async function main() {
       }
     }
 
-    // Update projectiles
-    const hitProjectiles = updateProjectiles(projectiles, world, dt);
+    // Update projectiles (now does terrain collision + crater carving)
+    const hits = updateProjectiles(projectiles, world, terrain, dt);
 
     // Projectile trail particles
     for (const p of projectiles) {
       if (!p.alive) continue;
       emitProjectileTrail(particleSys.cpuData, MAX_PARTICLES, cursor, p.x, p.y, p.level);
-
     }
 
-    // Impact explosions
-    for (const p of hitProjectiles) {
-      emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, p.x, p.y, p.power);
-
+    // Impact explosions + terrain debris
+    for (const { proj, carve } of hits) {
+      emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, proj.power);
+      if (carve.count > 0) {
+        emitTerrainDebris(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, carve.count);
+      }
     }
+
+    // Run cellular automata (3 steps for fast settling)
+    for (let i = 0; i < 3; i++) stepAutomata(terrain);
 
     // Clean up dead projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -212,7 +220,9 @@ async function main() {
       }],
     });
 
-    renderPlatforms(pass, platRenderer);
+    // Upload terrain grid and render
+    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height);
+    renderTerrain(pass, terrainRenderData);
     const chargingSpirit = charge.charging && charge.chargeType === 'spirit';
     renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, chargingSpirit);
 

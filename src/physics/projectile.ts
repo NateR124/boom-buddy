@@ -1,4 +1,6 @@
-import { Platform, World } from './world';
+import { World } from './world';
+import { TerrainGrid, carveExplosion, CarveResult } from '../terrain/grid';
+import { projectileHitsTerrain } from '../terrain/terrainCollision';
 
 export type ProjectileType = 'charge_shot' | 'spirit_bomb';
 
@@ -122,8 +124,26 @@ export function fireSpiritBomb(
   };
 }
 
-export function updateProjectiles(projectiles: Projectile[], world: World, dt: number): Projectile[] {
-  const hits: { proj: Projectile; hitX: number; hitY: number }[] = [];
+/**
+ * Compute crater radius in pixels for a projectile impact.
+ */
+export function getCraterRadius(proj: Projectile): number {
+  if (proj.type === 'spirit_bomb') {
+    return proj.radius * 1.5;
+  }
+  // Charge shot: 10-32px based on power
+  return 8 + proj.power * 24;
+}
+
+export interface ProjectileHit {
+  proj: Projectile;
+  carve: CarveResult;
+}
+
+export function updateProjectiles(
+  projectiles: Projectile[], world: World, terrain: TerrainGrid, dt: number,
+): ProjectileHit[] {
+  const hits: ProjectileHit[] = [];
 
   for (const proj of projectiles) {
     if (!proj.alive) continue;
@@ -136,13 +156,12 @@ export function updateProjectiles(projectiles: Projectile[], world: World, dt: n
     proj.x += proj.vx * dt;
     proj.y += proj.vy * dt;
 
-    // Check platform collision
-    for (const plat of world.platforms) {
-      if (projectileHitsPlatform(proj, plat)) {
-        proj.alive = false;
-        hits.push({ proj, hitX: proj.x, hitY: proj.y });
-        break;
-      }
+    // Check terrain collision
+    if (projectileHitsTerrain(proj, terrain)) {
+      proj.alive = false;
+      const craterR = getCraterRadius(proj);
+      const carve = carveExplosion(terrain, proj.x, proj.y, craterR);
+      hits.push({ proj, carve });
     }
 
     // Kill zone
@@ -156,19 +175,5 @@ export function updateProjectiles(projectiles: Projectile[], world: World, dt: n
     }
   }
 
-  return hits.map(h => h.proj);
-}
-
-function projectileHitsPlatform(proj: Projectile, plat: Platform): boolean {
-  if (proj.type === 'spirit_bomb') {
-    // Spirit bomb detonates when its CENTER enters a platform
-    return proj.x >= plat.x && proj.x <= plat.x + plat.w &&
-           proj.y >= plat.y && proj.y <= plat.y + plat.h;
-  }
-  // Circle vs AABB for other projectiles
-  const cx = Math.max(plat.x, Math.min(proj.x, plat.x + plat.w));
-  const cy = Math.max(plat.y, Math.min(proj.y, plat.y + plat.h));
-  const dx = proj.x - cx;
-  const dy = proj.y - cy;
-  return (dx * dx + dy * dy) < (proj.radius * proj.radius);
+  return hits;
 }
