@@ -212,35 +212,34 @@ export function emitTerrainDebris(
   px: number, py: number, cellCount: number,
 ) {
   // Scale particle count with crater size, cap to avoid flooding
-  const count = Math.min(Math.floor(8 + cellCount * 0.4), 60);
-  const speed = 60 + Math.min(cellCount, 100) * 1.5;
+  const count = Math.min(Math.floor(10 + cellCount * 0.5), 80);
+  const speed = 80 + Math.min(cellCount, 100) * 2;
 
-  // Mix of dirt-brown and grass-green particles
+  // Scatter in ALL directions from impact center — dirt chunks
   emitParticles(data, max, cursor, {
     x: px, y: py,
     count: Math.floor(count * 0.7),
     spread: 6,
-    speedMin: speed * 0.4, speedMax: speed,
-    angleMin: -Math.PI, angleMax: 0, // upward hemisphere
-    lifeMin: 0.3, lifeMax: 0.9,
+    speedMin: speed * 0.3, speedMax: speed,
+    angleMin: 0, angleMax: Math.PI * 2, // full 360°
+    lifeMin: 0.5, lifeMax: 1.2,
     sizeMin: 2, sizeMax: 5,
     color: [0.45, 0.30, 0.14],
     colorVar: 0.1,
     gravity: true,
-    damping: true,
   });
 
+  // Grass-green particles
   emitParticles(data, max, cursor, {
     x: px, y: py,
     count: Math.floor(count * 0.3),
     spread: 4,
-    speedMin: speed * 0.5, speedMax: speed * 1.2,
-    angleMin: -Math.PI, angleMax: 0,
-    lifeMin: 0.2, lifeMax: 0.6,
+    speedMin: speed * 0.4, speedMax: speed * 1.2,
+    angleMin: 0, angleMax: Math.PI * 2,
+    lifeMin: 0.4, lifeMax: 1.0,
     sizeMin: 1.5, sizeMax: 3.5,
     color: [0.28, 0.50, 0.22],
     colorVar: 0.08,
     gravity: true,
-    damping: true,
   });
 }

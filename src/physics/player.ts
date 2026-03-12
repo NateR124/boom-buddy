@@ -166,10 +166,11 @@ function killPlayer(player: Player) {
 }
 
 function respawnPlayer(player: Player, world: World) {
-  // Random position above main platform
-  const mainPlat = world.platforms[0];
-  player.x = mainPlat.x + Math.random() * mainPlat.w;
-  player.y = mainPlat.y - 120;
+  // Pick a random floating platform and spawn just above it
+  const floatingPlats = world.platforms.slice(1);
+  const plat = floatingPlats[Math.floor(Math.random() * floatingPlats.length)];
+  player.x = plat.x + plat.w / 2;
+  player.y = plat.y - 60;
   player.vx = 0;
   player.vy = 0;
   player.dead = false;

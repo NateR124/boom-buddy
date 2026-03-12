@@ -135,11 +135,7 @@ export function carveExplosion(
       const mat = grid.cells[idx] as Material;
       if (mat === Material.AIR || mat === Material.STONE) continue;
 
-      if (dist <= innerR) {
-        grid.cells[idx] = Material.AIR;
-      } else {
-        grid.cells[idx] = Material.RUBBLE;
-      }
+      grid.cells[idx] = Material.AIR;
       count++;
     }
   }

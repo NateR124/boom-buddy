@@ -120,11 +120,7 @@ export function renderProjectiles(
   // Render active projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
-    if (p.type === 'charge_shot') {
-      drawChargeShot(verts, p, time);
-    } else {
-      drawSpiritBomb(verts, p.x, p.y, p.radius, time, 1.0);
-    }
+    drawSpiritBomb(verts, p.x, p.y, p.radius, time, 1.0);
   }
 
   // Render spirit bomb charge sphere (above player during charge)
@@ -141,17 +137,6 @@ export function renderProjectiles(
   pass.setBindGroup(0, data.bindGroup);
   pass.setVertexBuffer(0, data.vertexBuffer);
   pass.draw(verts.length / 6);
-}
-
-function drawChargeShot(verts: number[], p: Projectile, time: number) {
-  const pulse = 1 + Math.sin(time * 20) * 0.15;
-  const r = p.radius * pulse;
-
-  // Core (bright white-blue)
-  const coreR = r * 0.6;
-  drawCircle(verts, p.x, p.y, coreR, 8, [0.8, 0.9, 1.0, 1.0]);
-  // Outer glow
-  drawCircle(verts, p.x, p.y, r, 10, [0.3, 0.5, 1.0, 0.6]);
 }
 
 function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, time: number, alpha: number) {

@@ -19,24 +19,25 @@ export function resolvePlayerTerrainCollision(player: Player, grid: TerrainGrid)
 }
 
 function resolvePlayerY(player: Player, grid: TerrainGrid, halfW: number, halfH: number): void {
-  // Player AABB edges in grid coords
+  // Player AABB edges in grid coords (inset 1px to avoid corner catching)
   const leftG = Math.floor((player.x - halfW + 1) / CELL_SCALE);
   const rightG = Math.floor((player.x + halfW - 1) / CELL_SCALE);
 
   if (player.vy >= 0) {
-    // Falling or stationary — check ground
+    // Falling or stationary — scan from center down to feet to find topmost ground
+    const centerG = Math.floor(player.y / CELL_SCALE);
     const footY = player.y + halfH;
-    const footG = Math.floor(footY / CELL_SCALE);
+    const footG = Math.floor(footY / CELL_SCALE) + 1; // +1 for tolerance
 
     let groundY = Infinity;
     for (let gx = leftG; gx <= rightG; gx++) {
-      // Check the row at foot level and one below
-      for (let gy = footG; gy <= footG + 1; gy++) {
+      for (let gy = centerG; gy <= footG; gy++) {
         if (isSolid(grid, gx, gy)) {
           const cellTop = gy * CELL_SCALE;
-          if (cellTop < groundY && cellTop >= footY - 2) {
+          if (cellTop < groundY) {
             groundY = cellTop;
           }
+          break; // found topmost solid in this column, stop scanning down
         }
       }
     }
@@ -47,18 +48,20 @@ function resolvePlayerY(player: Player, grid: TerrainGrid, halfW: number, halfH:
       player.grounded = true;
     }
   } else {
-    // Rising — check ceiling
+    // Rising — scan from center up to head to find lowest ceiling
+    const centerG = Math.floor(player.y / CELL_SCALE);
     const headY = player.y - halfH;
-    const headG = Math.floor(headY / CELL_SCALE);
+    const headG = Math.floor(headY / CELL_SCALE) - 1; // -1 for tolerance
 
     let ceilingY = -Infinity;
     for (let gx = leftG; gx <= rightG; gx++) {
-      for (let gy = headG; gy >= headG - 1; gy--) {
+      for (let gy = centerG; gy >= headG; gy--) {
         if (isSolid(grid, gx, gy)) {
           const cellBot = (gy + 1) * CELL_SCALE;
-          if (cellBot > ceilingY && cellBot <= headY + 2) {
+          if (cellBot > ceilingY) {
             ceilingY = cellBot;
           }
+          break; // found lowest solid in this column, stop scanning up
         }
       }
     }

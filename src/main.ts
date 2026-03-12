@@ -6,7 +6,7 @@ import { createPlayerRenderer, renderPlayer } from './renderer/playerRenderer';
 import { createParticleSystem, uploadParticleRange, uploadAttractors, updateParticlesGPU, renderParticles, AttractorDef } from './renderer/particleRenderer';
 import { createProjectileRenderer, renderProjectiles } from './renderer/projectileRenderer';
 import { createTerrainRenderer, uploadTerrainGrid, renderTerrain } from './renderer/terrainRenderer';
-import { createTerrainGrid, stepAutomata } from './terrain/grid';
+import { createTerrainGrid } from './terrain/grid';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
   emitRespawnBurst, emitSpiritBombOrbit, emitTerrainDebris,
@@ -14,7 +14,7 @@ import {
 import {
   Projectile, ChargeState, createChargeState,
   getChargeNormalized,
-  fireChargeShot, fireSpiritBomb, updateProjectiles,
+  fireSpiritBomb, updateProjectiles,
   getSpiritBombRadius, getSpiritBombCenterY,
 } from './physics/projectile';
 import { InputState } from './input';
@@ -80,14 +80,12 @@ async function main() {
     // Charge logic
     updateCharge(input, player, charge, dt);
 
-    // Charge aura particles
+    // Spirit bomb charge particles
     if (charge.charging) {
       const norm = getChargeNormalized(charge.chargeTime);
       emitChargeAura(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y, norm);
 
-
-      // Spirit bomb orbit particles — centered on the bomb, not the player
-      if (charge.chargeType === 'spirit' && charge.spiritRadius > 3) {
+      if (charge.spiritRadius > 3) {
         const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
         emitSpiritBombOrbit(
           particleSys.cpuData, MAX_PARTICLES, cursor,
@@ -113,8 +111,7 @@ async function main() {
       }
     }
 
-    // Run cellular automata (3 steps for fast settling)
-    for (let i = 0; i < 3; i++) stepAutomata(terrain);
+    // (cellular automata removed — debris scatters as particles instead)
 
     // Clean up dead projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -124,26 +121,22 @@ async function main() {
 
   function updateCharge(input: InputState, player: Player, charge: ChargeState, dt: number) {
     if (input.charge && !charge.charging) {
-      // Start charging
+      // Start charging spirit bomb
       charge.charging = true;
       charge.chargeTime = 0;
-      charge.chargeType = input.up ? 'spirit' : 'mega';
+      charge.chargeType = 'spirit';
       charge.spiritRadius = 0;
     }
 
     if (charge.charging && input.charge) {
       charge.chargeTime += dt;
-      if (charge.chargeType === 'spirit') {
-        // Area grows at constant rate → radius = sqrt((A₀ + k*t) / π)
-        charge.spiritRadius = getSpiritBombRadius(charge.chargeTime);
-      }
+      // Area grows at constant rate → radius = sqrt((A₀ + k*t) / π)
+      charge.spiritRadius = getSpiritBombRadius(charge.chargeTime);
     }
 
     if (charge.charging && input.chargeReleased) {
       // Fire!
-      if (charge.chargeType === 'mega' && charge.chargeTime > 0.05) {
-        projectiles.push(fireChargeShot(charge.chargeTime, player.x, player.y, player.facing));
-      } else if (charge.chargeType === 'spirit' && charge.chargeTime > 0.3) {
+      if (charge.chargeTime > 0.3) {
         projectiles.push(fireSpiritBomb(charge.chargeTime, charge.spiritRadius, player.x, player.y, player.facing));
       }
       charge.charging = false;
@@ -177,29 +170,16 @@ async function main() {
 
     // Build attractor list for this frame
     const attractors: AttractorDef[] = [];
-    if (charge.charging) {
+    if (charge.charging && charge.spiritRadius > 3) {
       const norm = getChargeNormalized(charge.chargeTime);
-
-      if (charge.chargeType === 'spirit' && charge.spiritRadius > 3) {
-        // Spirit bomb: ALL particles converge on the bomb center, not the player
-        const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
-        attractors.push({
-          x: player.x,
-          y: bombY,
-          strength: 400 + norm * 600,
-          radius: Math.max(80, charge.spiritRadius * 2.5),
-          tangent: 250 + norm * 400,
-        });
-      } else {
-        // Mega charge: particles swirl toward the player
-        attractors.push({
-          x: player.x,
-          y: player.y,
-          strength: 300 + norm * 500,
-          radius: 80,
-          tangent: 200 + norm * 300,
-        });
-      }
+      const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
+      attractors.push({
+        x: player.x,
+        y: bombY,
+        strength: 400 + norm * 600,
+        radius: Math.max(80, charge.spiritRadius * 2.5),
+        tangent: 250 + norm * 400,
+      });
     }
     uploadAttractors(gpu.device, particleSys, attractors);
 
@@ -223,11 +203,10 @@ async function main() {
     // Upload terrain grid and render
     uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height);
     renderTerrain(pass, terrainRenderData);
-    const chargingSpirit = charge.charging && charge.chargeType === 'spirit';
-    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, chargingSpirit);
+    renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, charge.charging);
 
     // Render projectile shapes
-    const spiritR = (charge.charging && charge.chargeType === 'spirit') ? charge.spiritRadius : 0;
+    const spiritR = charge.charging ? charge.spiritRadius : 0;
     const spiritX = player.x;
     const spiritY = spiritR > 0 ? getSpiritBombCenterY(player.y, spiritR) : player.y;
     renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime);
