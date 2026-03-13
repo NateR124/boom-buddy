@@ -39,6 +39,28 @@ export function createTerrainGrid(platforms: Platform[]): TerrainGrid {
   return { cells, width: GRID_W, height: GRID_H };
 }
 
+/**
+ * Reset an existing terrain grid back to its original platform layout.
+ * Reuses the same cells array to avoid reallocation.
+ */
+export function resetTerrainGrid(grid: TerrainGrid, platforms: Platform[]): void {
+  grid.cells.fill(0); // clear all to AIR
+
+  for (const plat of platforms) {
+    const gx0 = Math.floor(plat.x / CELL_SCALE);
+    const gy0 = Math.floor(plat.y / CELL_SCALE);
+    const gx1 = Math.floor((plat.x + plat.w) / CELL_SCALE);
+    const gy1 = Math.floor((plat.y + plat.h) / CELL_SCALE);
+
+    for (let gy = gy0; gy < gy1; gy++) {
+      for (let gx = gx0; gx < gx1; gx++) {
+        if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) continue;
+        grid.cells[gy * GRID_W + gx] = gy === gy0 ? Material.GRASS : Material.DIRT;
+      }
+    }
+  }
+}
+
 export function getCell(grid: TerrainGrid, gx: number, gy: number): Material {
   if (gx < 0 || gx >= grid.width || gy < 0 || gy >= grid.height) return Material.AIR;
   return grid.cells[gy * grid.width + gx] as Material;

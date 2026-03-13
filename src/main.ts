@@ -6,7 +6,7 @@ import { createPlayerRenderer, renderPlayer } from './renderer/playerRenderer';
 import { createParticleSystem, uploadParticleRange, uploadAttractors, updateParticlesGPU, renderParticles, AttractorDef } from './renderer/particleRenderer';
 import { createProjectileRenderer, renderProjectiles } from './renderer/projectileRenderer';
 import { createTerrainRenderer, uploadTerrainGrid, renderTerrain } from './renderer/terrainRenderer';
-import { createTerrainGrid } from './terrain/grid';
+import { createTerrainGrid, resetTerrainGrid, isSolid, CELL_SCALE } from './terrain/grid';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
   emitRespawnBurst, emitSpiritBombOrbit, emitTerrainDebris,
@@ -22,6 +22,7 @@ import { createCamera, addShake, updateShake } from './camera';
 
 const FIXED_DT = 1 / 60;
 const MAX_PARTICLES = 4096;
+const DAY_CYCLE = 30; // seconds for a full day/night cycle
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -58,6 +59,7 @@ async function main() {
   let accumulator = 0;
   let lastTime = performance.now();
   let gameTime = 0;
+  let currentDay = 0; // tracks day number for terrain regeneration
   // Track which particle slots were written this frame for partial upload
   let frameCursorStart = 0;
 
@@ -117,6 +119,17 @@ async function main() {
 
     // Update camera shake
     updateShake(camera, dt);
+
+    // Terrain regeneration at the start of each new day cycle
+    const newDay = Math.floor(gameTime / DAY_CYCLE);
+    if (newDay > currentDay) {
+      currentDay = newDay;
+      resetTerrainGrid(terrain, world.platforms);
+      // Push player out of regenerated terrain
+      resolvePlayerTerrainRegen(player, terrain);
+      // Small shake to punctuate the terrain reset
+      addShake(camera, 3, 0.25);
+    }
 
     // Clean up dead projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -209,8 +222,9 @@ async function main() {
       }],
     });
 
-    // Upload terrain grid and render (with camera shake)
-    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, sx, sy);
+    // Upload terrain grid and render (with camera shake + day/night phase)
+    const dayPhase = (gameTime % DAY_CYCLE) / DAY_CYCLE;
+    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, sx, sy, dayPhase);
     renderTerrain(pass, terrainRenderData);
 
     // Render player with camera shake offset
@@ -238,6 +252,39 @@ async function main() {
 // Helper to update particle render uniform with camera offset
 function updateParticleUniforms(device: GPUDevice, ps: { uniformBuffer: GPUBuffer }, w: number, h: number, sx: number, sy: number) {
   device.queue.writeBuffer(ps.uniformBuffer, 0, new Float32Array([w, h, sx, sy]));
+}
+
+/**
+ * After terrain regeneration, push the player upward if they're clipped into solid terrain.
+ * Iteratively moves player up one cell at a time until free.
+ */
+function resolvePlayerTerrainRegen(player: import('./physics/player').Player, terrain: import('./terrain/grid').TerrainGrid) {
+  if (player.dead) return;
+
+  const halfW = player.w / 2;
+  const halfH = player.h / 2;
+  // Inset by 2px to match collision margins
+  const leftG = Math.floor((player.x - halfW + 2) / CELL_SCALE);
+  const rightG = Math.floor((player.x + halfW - 2) / CELL_SCALE);
+
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const topG = Math.floor((player.y - halfH) / CELL_SCALE);
+    const botG = Math.floor((player.y + halfH) / CELL_SCALE);
+
+    let clipped = false;
+    for (let gy = topG; gy <= botG && !clipped; gy++) {
+      for (let gx = leftG; gx <= rightG && !clipped; gx++) {
+        if (isSolid(terrain, gx, gy)) {
+          clipped = true;
+        }
+      }
+    }
+
+    if (!clipped) break;
+    player.y -= CELL_SCALE; // push up one cell
+  }
+
+  player.vy = 0;
 }
 
 main();

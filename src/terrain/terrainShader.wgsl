@@ -1,6 +1,6 @@
 // Terrain render shader — fullscreen quad that reads a grid storage buffer
 // and outputs colored pixels for each material type.
-// Also renders parallax sky background with stars and drifting clouds.
+// Features a full day/night cycle with sun arc, stars, clouds, and terrain lighting.
 
 struct Uniforms {
   resolution: vec2f,
@@ -8,7 +8,7 @@ struct Uniforms {
   time: f32,
   cameraX: f32,
   cameraY: f32,
-  _pad2: f32,
+  dayPhase: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -42,6 +42,9 @@ const MAT_DIRT: u32   = 2u;
 const MAT_STONE: u32  = 3u;
 const MAT_RUBBLE: u32 = 4u;
 
+const TAU: f32 = 6.28318530718;
+const PI: f32  = 3.14159265359;
+
 // --- Hash functions ---
 fn hash(p: vec2u) -> f32 {
   let n = p.x * 73u + p.y * 157u + 37u;
@@ -54,46 +57,12 @@ fn hash2d(p: vec2f) -> f32 {
   return fract(sin(d) * 43758.5453123);
 }
 
-// --- Sky background ---
-fn renderSky(fragPos: vec2f) -> vec3f {
-  let uv = fragPos / uniforms.resolution;
-
-  // Base gradient: deep navy at top → purple-blue at bottom
-  let skyTop = vec3f(0.02, 0.02, 0.08);
-  let skyMid = vec3f(0.06, 0.04, 0.14);
-  let skyBot = vec3f(0.12, 0.06, 0.22);
-  var sky = mix(skyTop, mix(skyMid, skyBot, uv.y), uv.y);
-
-  // Stars — fixed positions, very slow twinkle
-  let starUV = floor(fragPos * 0.25) * 4.0; // quantize to grid
-  let starHash = hash2d(starUV);
-  if (starHash > 0.993) {
-    // Bright star
-    let twinkle = 0.6 + 0.4 * sin(uniforms.time * 1.5 + starHash * 100.0);
-    let brightness = twinkle * (1.0 - uv.y * 0.5); // dimmer near bottom
-    let starColor = vec3f(0.8, 0.85, 1.0) * brightness;
-    sky += starColor;
-  } else if (starHash > 0.985) {
-    // Dim star
-    let twinkle = 0.3 + 0.2 * sin(uniforms.time * 2.0 + starHash * 50.0);
-    let brightness = twinkle * (1.0 - uv.y * 0.7);
-    sky += vec3f(0.4, 0.45, 0.6) * brightness;
-  }
-
-  // Cloud layer 1 — slow drift
-  let cloudUV1 = vec2f(fragPos.x * 0.003 + uniforms.time * 0.008, fragPos.y * 0.006);
-  let cloud1 = smoothCloudNoise(cloudUV1);
-  let cloudColor1 = vec3f(0.12, 0.08, 0.20) * cloud1 * (1.0 - uv.y * 0.5);
-
-  // Cloud layer 2 — faster, smaller
-  let cloudUV2 = vec2f(fragPos.x * 0.005 - uniforms.time * 0.012, fragPos.y * 0.008 + 10.0);
-  let cloud2 = smoothCloudNoise(cloudUV2);
-  let cloudColor2 = vec3f(0.08, 0.06, 0.16) * cloud2 * (1.0 - uv.y * 0.3);
-
-  sky += cloudColor1 + cloudColor2;
-  return sky;
+fn hash2d_b(p: vec2f) -> f32 {
+  let d = dot(p, vec2f(269.5, 183.3));
+  return fract(sin(d) * 28647.8953);
 }
 
+// --- Cloud noise ---
 fn smoothCloudNoise(uv: vec2f) -> f32 {
   let i = floor(uv);
   let f = fract(uv);
@@ -105,8 +74,157 @@ fn smoothCloudNoise(uv: vec2f) -> f32 {
   let d = hash2d(i + vec2f(1.0, 1.0));
 
   let val = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-  // Threshold to create cloud shapes
   return smoothstep(0.35, 0.65, val);
+}
+
+// Layered cloud noise for fluffier shapes
+fn cloudFBM(uv: vec2f) -> f32 {
+  var val = smoothCloudNoise(uv) * 0.6;
+  val += smoothCloudNoise(uv * 2.1 + vec2f(3.7, 1.2)) * 0.25;
+  val += smoothCloudNoise(uv * 4.3 + vec2f(7.1, 5.8)) * 0.15;
+  return saturate(val);
+}
+
+// --- Day/night helper values ---
+struct DayInfo {
+  sunHeight: f32,    // -1 midnight, +1 noon
+  dayFactor: f32,    // 0 at night, 1 during day (smooth)
+  nightFactor: f32,  // inverse of dayFactor
+  horizonGlow: f32,  // peaks at dawn/dusk
+};
+
+fn getDayInfo() -> DayInfo {
+  let phase = uniforms.dayPhase;
+  let sunHeight = -cos(phase * TAU);
+
+  // Smooth day/night factor
+  let dayFactor = smoothstep(-0.15, 0.35, sunHeight);
+
+  // Horizon glow: Gaussian centered at sunHeight=0, only when sun is near horizon
+  let horizonGlow = exp(-sunHeight * sunHeight / 0.04) * smoothstep(-0.6, -0.1, sunHeight);
+
+  return DayInfo(sunHeight, dayFactor, 1.0 - dayFactor, horizonGlow);
+}
+
+// --- Sky background with day/night cycle ---
+fn renderSky(fragPos: vec2f) -> vec3f {
+  let uv = fragPos / uniforms.resolution;
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  let info = getDayInfo();
+
+  // ===== Base sky gradient =====
+
+  // Night palette: deep navy → dark indigo
+  let nightTop = vec3f(0.01, 0.01, 0.05);
+  let nightMid = vec3f(0.04, 0.03, 0.10);
+  let nightBot = vec3f(0.08, 0.04, 0.16);
+  let nightSky = mix(nightTop, mix(nightMid, nightBot, uv.y), uv.y);
+
+  // Day palette: rich blue → soft blue
+  let dayTop = vec3f(0.15, 0.38, 0.78);
+  let dayMid = vec3f(0.32, 0.55, 0.88);
+  let dayBot = vec3f(0.52, 0.70, 0.92);
+  let daySky = mix(dayTop, mix(dayMid, dayBot, uv.y), uv.y);
+
+  // Blend night → day
+  var sky = mix(nightSky, daySky, info.dayFactor);
+
+  // ===== Dawn/dusk warm horizon =====
+  // Warm gradient that hugs the lower sky
+  let horizonBand = smoothstep(0.2, 0.85, uv.y); // stronger near bottom
+  let warmOrange = vec3f(0.95, 0.50, 0.15);
+  let warmPink   = vec3f(0.75, 0.32, 0.42);
+  let warmPurple = vec3f(0.45, 0.20, 0.50);
+  // Vertical blend: purple at top → pink → orange at horizon
+  let warmSky = mix(warmPurple, mix(warmPink, warmOrange, horizonBand), horizonBand);
+  sky = mix(sky, warmSky, info.horizonGlow * horizonBand * 0.85);
+
+  // Subtle warm wash across entire sky during transition
+  sky += vec3f(0.12, 0.04, 0.02) * info.horizonGlow * 0.3;
+
+  // ===== Sun =====
+  let phase = uniforms.dayPhase;
+
+  // Sun arcs left→right during day half
+  let sunScreenX = 0.5 + 0.38 * sin((phase - 0.5) * TAU);
+  // Sun height on screen (low at horizon, high at noon)
+  let sunScreenY = 0.12 + (1.0 - saturate(info.sunHeight)) * 0.52;
+
+  let sunPos = vec2f(sunScreenX, sunScreenY);
+  let diff = vec2f((uv.x - sunPos.x) * aspect, uv.y - sunPos.y);
+  let sunDist = length(diff);
+
+  let sunVisible = smoothstep(-0.08, 0.12, info.sunHeight);
+
+  // Multi-layer sun glow
+  let sunCore  = exp(-sunDist * sunDist * 1200.0) * sunVisible;
+  let sunInner = exp(-sunDist * sunDist * 200.0)  * sunVisible * 0.7;
+  let sunOuter = exp(-sunDist * sunDist * 30.0)   * sunVisible * 0.25;
+  let sunAura  = exp(-sunDist * sunDist * 6.0)    * sunVisible * 0.08;
+
+  // Sun color shifts warmer near horizon
+  let sunWarmth = 1.0 - smoothstep(0.0, 0.6, info.sunHeight);
+  let sunWhite  = vec3f(1.0, 0.98, 0.92);
+  let sunYellow = vec3f(1.0, 0.85, 0.45);
+  let sunDeep   = vec3f(1.0, 0.55, 0.15);
+
+  sky += sunWhite * sunCore;
+  sky += mix(sunYellow, sunDeep, sunWarmth * 0.6) * sunInner;
+  sky += mix(vec3f(1.0, 0.8, 0.5), sunDeep, sunWarmth) * sunOuter;
+  sky += vec3f(0.8, 0.45, 0.15) * sunAura * info.horizonGlow;
+
+  // ===== Stars =====
+  let starUV = floor(fragPos * 0.25) * 4.0; // quantize to grid
+  let starHash = hash2d(starUV);
+
+  if (starHash > 0.993) {
+    // Bright star — blue-white
+    let twinkle = 0.6 + 0.4 * sin(uniforms.time * 1.5 + starHash * 100.0);
+    let brightness = twinkle * (1.0 - uv.y * 0.5) * info.nightFactor;
+    sky += vec3f(0.85, 0.9, 1.0) * brightness;
+  } else if (starHash > 0.985) {
+    // Dim star
+    let twinkle = 0.3 + 0.2 * sin(uniforms.time * 2.0 + starHash * 50.0);
+    let brightness = twinkle * (1.0 - uv.y * 0.7) * info.nightFactor;
+    sky += vec3f(0.4, 0.45, 0.65) * brightness;
+  } else if (starHash > 0.982) {
+    // Faint warm star
+    let twinkle = 0.2 + 0.15 * sin(uniforms.time * 1.2 + starHash * 80.0);
+    let brightness = twinkle * (1.0 - uv.y * 0.6) * info.nightFactor;
+    sky += vec3f(0.6, 0.5, 0.35) * brightness;
+  }
+
+  // ===== Clouds =====
+  // Cloud layer 1 — large slow drifting
+  let cloudUV1 = vec2f(fragPos.x * 0.003 + uniforms.time * 0.008, fragPos.y * 0.006);
+  let cloud1 = cloudFBM(cloudUV1);
+
+  // Cloud layer 2 — smaller, faster, opposite drift
+  let cloudUV2 = vec2f(fragPos.x * 0.005 - uniforms.time * 0.012, fragPos.y * 0.008 + 10.0);
+  let cloud2 = cloudFBM(cloudUV2);
+
+  // Cloud color shifts with time of day
+  let cloudNight  = vec3f(0.06, 0.04, 0.12);
+  let cloudDay    = vec3f(0.92, 0.93, 0.96);
+  let cloudDawn   = vec3f(0.95, 0.55, 0.25);
+  let cloudDusk   = vec3f(0.90, 0.45, 0.30);
+  let cloudWarm   = mix(cloudDawn, cloudDusk, step(0.5, uniforms.dayPhase));
+
+  var cloudColor1 = mix(cloudNight, cloudDay, info.dayFactor);
+  cloudColor1 = mix(cloudColor1, cloudWarm, info.horizonGlow * 0.8);
+
+  var cloudColor2 = mix(cloudNight * 0.7, cloudDay * 0.85, info.dayFactor);
+  cloudColor2 = mix(cloudColor2, cloudWarm * 0.75, info.horizonGlow * 0.6);
+
+  // Clouds are more visible during day, subtler at night
+  let cloudOpacity = mix(0.2, 0.4, info.dayFactor);
+  sky += cloudColor1 * cloud1 * cloudOpacity;
+  sky += cloudColor2 * cloud2 * cloudOpacity * 0.6;
+
+  // Cloud rim lighting from sun during dawn/dusk
+  sky += cloudWarm * (cloud1 + cloud2) * info.horizonGlow * 0.15;
+
+  return sky;
 }
 
 fn getMaterial(gx: i32, gy: i32) -> u32 {
@@ -137,6 +255,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     return vec4f(sky, 1.0);
   }
 
+  // --- Day/night terrain lighting ---
+  let info = getDayInfo();
+
   let noise = hash(vec2u(u32(gx), u32(gy)));
 
   // Edge detection: darken if adjacent to air
@@ -153,7 +274,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
   var color = vec3f(0.0);
 
   if (mat == MAT_GRASS) {
-    let surfaceHighlight = select(0.0, 0.12, isAir(gx, gy - 1));
+    let surfaceHighlight = select(0.0, 0.12 + info.dayFactor * 0.08, isAir(gx, gy - 1));
     color = vec3f(0.25 + noise * 0.08, 0.52 + noise * 0.10 + surfaceHighlight, 0.20 + noise * 0.06);
   } else if (mat == MAT_DIRT) {
     var depth = 0.0;
@@ -173,6 +294,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     color = vec3f(0.40 + noise * 0.06, 0.40 + noise * 0.06, 0.45 + noise * 0.06);
   }
 
+  // Day/night brightness: 0.5 at deep night, 1.0 at full day
+  let dayLight = mix(0.5, 1.0, info.dayFactor);
+
+  // Warm tint during dawn/dusk
+  let warmTint = vec3f(0.12, 0.04, 0.0) * info.horizonGlow;
+
+  color = color * dayLight + warmTint * dayLight * 0.3;
   color *= edgeFactor * subVar;
+
   return vec4f(color, 1.0);
 }

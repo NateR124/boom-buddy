@@ -72,6 +72,7 @@ export function uploadTerrainGrid(
   canvasH: number,
   cameraX = 0,
   cameraY = 0,
+  dayPhase = 0,
 ) {
   // Pack cells: 4 bytes per u32
   const packed = new Uint32Array(GRID_BUFFER_SIZE / 4);
@@ -86,7 +87,7 @@ export function uploadTerrainGrid(
   }
   device.queue.writeBuffer(data.gridBuffer, 0, packed.buffer);
 
-  // Uniforms: resolution(2f), gridSize(2u), time(1f), cameraX(1f), cameraY(1f), pad(1f)
+  // Uniforms: resolution(2f), gridSize(2u), time(1f), cameraX(1f), cameraY(1f), dayPhase(1f)
   const unifBuf = new ArrayBuffer(32);
   const f32 = new Float32Array(unifBuf);
   const u32 = new Uint32Array(unifBuf);
@@ -97,6 +98,7 @@ export function uploadTerrainGrid(
   f32[4] = time;
   f32[5] = cameraX;
   f32[6] = cameraY;
+  f32[7] = dayPhase;
   device.queue.writeBuffer(data.uniformBuffer, 0, unifBuf);
 }
 
