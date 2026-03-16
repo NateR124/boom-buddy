@@ -30,19 +30,19 @@ const SPIRIT_BOMB_BASE_SPEED = 200;
 // Spirit bomb positioning: bottom of sphere sits this far above the player center
 const SPIRIT_BOMB_GAP = 20;
 
-// Area growth rate in px²/s — constant rate of "energy absorption"
+// Area growth: linear base + slight quadratic acceleration
 const SPIRIT_BOMB_AREA_PER_SEC = 3000;
+const SPIRIT_BOMB_AREA_ACCEL = 800; // px²/s² — subtle ramp-up over time
 const SPIRIT_BOMB_INITIAL_RADIUS = 5;
-// No max radius cap — charge as long as you dare
 
 /**
  * Compute spirit bomb radius from charge time.
- * Area grows at a constant rate: A(t) = A₀ + k*t
- * So r(t) = sqrt(A(t) / π) = sqrt((π*r₀² + k*t) / π)
+ * Area grows with slight acceleration: A(t) = A₀ + k*t + 0.5*a*t²
+ * So r(t) = sqrt(A(t) / π)
  */
 export function getSpiritBombRadius(chargeTime: number): number {
   const a0 = Math.PI * SPIRIT_BOMB_INITIAL_RADIUS * SPIRIT_BOMB_INITIAL_RADIUS;
-  const area = a0 + SPIRIT_BOMB_AREA_PER_SEC * chargeTime;
+  const area = a0 + SPIRIT_BOMB_AREA_PER_SEC * chargeTime + 0.5 * SPIRIT_BOMB_AREA_ACCEL * chargeTime * chargeTime;
   return Math.sqrt(area / Math.PI);
 }
 
@@ -103,21 +103,21 @@ export function fireSpiritBomb(
   px: number, py: number,
   facing: number,
 ): Projectile {
-  // Bigger = slower (scale relative to a "large" bomb ~60px radius)
-  const sizeScale = Math.min(spiritRadius / 60, 1);
-  const speed = SPIRIT_BOMB_BASE_SPEED * (1 - sizeScale * 0.7);
+  // Bigger = slower (continuous scaling, no cap)
+  const sizeScale = spiritRadius / 60;
+  const speed = SPIRIT_BOMB_BASE_SPEED / (1 + sizeScale * 1.5);
 
   // Launch at 45° downward in facing direction
-  const angle = facing === 1 ? Math.PI * 0.25 : Math.PI * 0.75;
   const centerY = getSpiritBombCenterY(py, spiritRadius);
+  const diag = speed * Math.SQRT1_2; // cos(45°) = sin(45°) = √2/2
 
   return {
     x: px,
     y: centerY,
-    vx: Math.cos(angle) * speed * facing,
-    vy: Math.abs(Math.sin(angle) * speed),
+    vx: facing * diag,
+    vy: diag,
     radius: spiritRadius,
-    power: Math.min(chargeTime / 3, 1),
+    power: chargeTime / 3,
     type: 'spirit_bomb',
     alive: true,
     level: 0,

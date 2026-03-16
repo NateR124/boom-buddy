@@ -9,6 +9,10 @@ struct Uniforms {
   cameraX: f32,
   cameraY: f32,
   dayPhase: f32,
+  regenTimer: f32, // counts down from ~1.5s after terrain regen, for blink effect
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -302,6 +306,22 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
 
   color = color * dayLight + warmTint * dayLight * 0.3;
   color *= edgeFactor * subVar;
+
+  // Terrain regen blink effect — smooth pulse between terrain and sky
+  if (uniforms.regenTimer > 0.0) {
+    let t = uniforms.regenTimer; // counts down from ~1.5
+    let blinkSpeed = 6.0 + t * 10.0; // faster at start, slower as it settles
+    // Smooth sine wave 0→1 instead of hard threshold
+    let wave = 0.5 + 0.5 * sin(uniforms.time * blinkSpeed * TAU);
+    // Fade the blink intensity as timer expires (terrain becomes solid)
+    let blinkStrength = smoothstep(0.0, 0.3, t);
+    let skyBlend = wave * blinkStrength;
+
+    let sky = renderSky(input.position.xy);
+    color = mix(color, sky, skyBlend);
+    // Subtle bright tint on the terrain portion
+    color += vec3f(0.15, 0.25, 0.15) * (1.0 - wave) * blinkStrength;
+  }
 
   return vec4f(color, 1.0);
 }

@@ -60,6 +60,7 @@ async function main() {
   let lastTime = performance.now();
   let gameTime = 0;
   let currentDay = 0; // tracks day number for terrain regeneration
+  let regenTimer = 0; // counts down after terrain regen for blink effect
   // Track which particle slots were written this frame for partial upload
   let frameCursorStart = 0;
 
@@ -129,6 +130,12 @@ async function main() {
       resolvePlayerTerrainRegen(player, terrain);
       // Small shake to punctuate the terrain reset
       addShake(camera, 3, 0.25);
+      regenTimer = 1.5; // trigger blink effect
+    }
+
+    // Tick down regen blink timer
+    if (regenTimer > 0) {
+      regenTimer = Math.max(0, regenTimer - dt);
     }
 
     // Clean up dead projectiles
@@ -224,7 +231,7 @@ async function main() {
 
     // Upload terrain grid and render (with camera shake + day/night phase)
     const dayPhase = (gameTime % DAY_CYCLE) / DAY_CYCLE;
-    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, sx, sy, dayPhase);
+    uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, sx, sy, dayPhase, regenTimer);
     renderTerrain(pass, terrainRenderData);
 
     // Render player with camera shake offset

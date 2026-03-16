@@ -20,9 +20,9 @@ export function createTerrainRenderer(gpu: GpuContext): TerrainRenderData {
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
 
-  // Uniforms: resolution(2f) + gridSize(2u) + time(1f) + 3 padding = 32 bytes
+  // Uniforms: resolution(2f) + gridSize(2u) + time(1f) + cameraXY(2f) + dayPhase(1f) + regenTimer(1f) + pad(3f) = 48 bytes
   const uniformBuffer = device.createBuffer({
-    size: 32,
+    size: 48,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -73,6 +73,7 @@ export function uploadTerrainGrid(
   cameraX = 0,
   cameraY = 0,
   dayPhase = 0,
+  regenTimer = 0,
 ) {
   // Pack cells: 4 bytes per u32
   const packed = new Uint32Array(GRID_BUFFER_SIZE / 4);
@@ -87,8 +88,8 @@ export function uploadTerrainGrid(
   }
   device.queue.writeBuffer(data.gridBuffer, 0, packed.buffer);
 
-  // Uniforms: resolution(2f), gridSize(2u), time(1f), cameraX(1f), cameraY(1f), dayPhase(1f)
-  const unifBuf = new ArrayBuffer(32);
+  // Uniforms: resolution(2f), gridSize(2u), time(1f), cameraX(1f), cameraY(1f), dayPhase(1f), regenTimer(1f), pad(3f)
+  const unifBuf = new ArrayBuffer(48);
   const f32 = new Float32Array(unifBuf);
   const u32 = new Uint32Array(unifBuf);
   f32[0] = canvasW;
@@ -99,6 +100,7 @@ export function uploadTerrainGrid(
   f32[5] = cameraX;
   f32[6] = cameraY;
   f32[7] = dayPhase;
+  f32[8] = regenTimer;
   device.queue.writeBuffer(data.uniformBuffer, 0, unifBuf);
 }
 
