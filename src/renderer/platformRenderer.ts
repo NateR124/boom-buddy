@@ -1,5 +1,6 @@
 import { GpuContext } from './gpu';
-import { Platform } from '../physics/world';
+
+interface Platform { x: number; y: number; w: number; h: number; }
 
 interface PlatformRenderData {
   pipeline: GPURenderPipeline;

@@ -1,7 +1,5 @@
-import { Platform } from '../physics/world';
-
 export const GRID_W = 480;
-export const GRID_H = 270;
+export const GRID_H = 540; // ~2 screens tall: buffer above + visible + buffer below
 export const CELL_SCALE = 2; // each grid cell = 2x2 screen pixels
 
 export const enum Material {
@@ -16,70 +14,64 @@ export interface TerrainGrid {
   cells: Uint8Array;
   width: number;
   height: number;
-}
-
-export function createTerrainGrid(platforms: Platform[]): TerrainGrid {
-  const cells = new Uint8Array(GRID_W * GRID_H);
-
-  for (const plat of platforms) {
-    const gx0 = Math.floor(plat.x / CELL_SCALE);
-    const gy0 = Math.floor(plat.y / CELL_SCALE);
-    const gx1 = Math.floor((plat.x + plat.w) / CELL_SCALE);
-    const gy1 = Math.floor((plat.y + plat.h) / CELL_SCALE);
-
-    for (let gy = gy0; gy < gy1; gy++) {
-      for (let gx = gx0; gx < gx1; gx++) {
-        if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) continue;
-        // Top row of platform = grass, rest = dirt
-        cells[gy * GRID_W + gx] = gy === gy0 ? Material.GRASS : Material.DIRT;
-      }
-    }
-  }
-
-  return { cells, width: GRID_W, height: GRID_H };
+  /** Number of grid rows that have been scrolled off the top of the buffer. */
+  worldYOffset: number;
 }
 
 /**
- * Reset an existing terrain grid back to its original platform layout.
- * Reuses the same cells array to avoid reallocation.
+ * Create an empty terrain grid. Caller fills it via generateRows().
  */
-export function resetTerrainGrid(grid: TerrainGrid, platforms: Platform[]): void {
-  grid.cells.fill(0); // clear all to AIR
-
-  for (const plat of platforms) {
-    const gx0 = Math.floor(plat.x / CELL_SCALE);
-    const gy0 = Math.floor(plat.y / CELL_SCALE);
-    const gx1 = Math.floor((plat.x + plat.w) / CELL_SCALE);
-    const gy1 = Math.floor((plat.y + plat.h) / CELL_SCALE);
-
-    for (let gy = gy0; gy < gy1; gy++) {
-      for (let gx = gx0; gx < gx1; gx++) {
-        if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) continue;
-        grid.cells[gy * GRID_W + gx] = gy === gy0 ? Material.GRASS : Material.DIRT;
-      }
-    }
-  }
+export function createTerrainGrid(): TerrainGrid {
+  const cells = new Uint8Array(GRID_W * GRID_H);
+  return { cells, width: GRID_W, height: GRID_H, worldYOffset: 0 };
 }
 
-export function getCell(grid: TerrainGrid, gx: number, gy: number): Material {
-  if (gx < 0 || gx >= grid.width || gy < 0 || gy >= grid.height) return Material.AIR;
-  return grid.cells[gy * grid.width + gx] as Material;
+/**
+ * Get cell material at world grid coordinates.
+ * Returns AIR for out-of-buffer cells.
+ */
+export function getCell(grid: TerrainGrid, worldGx: number, worldGy: number): Material {
+  if (worldGx < 0 || worldGx >= grid.width) return Material.AIR;
+  const localGy = worldGy - grid.worldYOffset;
+  if (localGy < 0 || localGy >= grid.height) return Material.AIR;
+  return grid.cells[localGy * grid.width + worldGx] as Material;
 }
 
-export function isSolid(grid: TerrainGrid, gx: number, gy: number): boolean {
-  return getCell(grid, gx, gy) !== Material.AIR;
+export function isSolid(grid: TerrainGrid, worldGx: number, worldGy: number): boolean {
+  return getCell(grid, worldGx, worldGy) !== Material.AIR;
+}
+
+/**
+ * Shift the grid buffer upward by `rows` rows, discarding the top.
+ * The vacated bottom rows are filled with AIR (caller generates new terrain into them).
+ */
+export function shiftGridUp(grid: TerrainGrid, rows: number): void {
+  const { cells, width, height } = grid;
+  const shift = rows * width;
+  // Move data up
+  cells.copyWithin(0, shift);
+  // Clear the vacated bottom rows
+  cells.fill(Material.AIR, (height - rows) * width);
+  grid.worldYOffset += rows;
+}
+
+/**
+ * Set a cell at world grid coordinates (if in buffer range).
+ */
+export function setCell(grid: TerrainGrid, worldGx: number, worldGy: number, mat: Material): void {
+  if (worldGx < 0 || worldGx >= grid.width) return;
+  const localGy = worldGy - grid.worldYOffset;
+  if (localGy < 0 || localGy >= grid.height) return;
+  grid.cells[localGy * grid.width + worldGx] = mat;
 }
 
 /**
  * Run cellular automata: RUBBLE falls and settles.
- * Call multiple times per tick to accelerate settling.
  */
 export function stepAutomata(grid: TerrainGrid): void {
   const { cells, width, height } = grid;
-  // Randomize slide direction preference each step
   const preferLeft = Math.random() < 0.5;
 
-  // Scan bottom→top so falling doesn't cascade multiple rows in one step
   for (let gy = height - 2; gy >= 0; gy--) {
     for (let gx = 0; gx < width; gx++) {
       const idx = gy * width + gx;
@@ -87,14 +79,12 @@ export function stepAutomata(grid: TerrainGrid): void {
 
       const below = (gy + 1) * width + gx;
 
-      // Fall straight down
       if (cells[below] === Material.AIR) {
         cells[below] = Material.RUBBLE;
         cells[idx] = Material.AIR;
         continue;
       }
 
-      // Slide diagonally
       const dir1 = preferLeft ? -1 : 1;
       const dir2 = preferLeft ? 1 : -1;
 
@@ -129,9 +119,8 @@ export interface CarveResult {
 }
 
 /**
- * Carve a crater at pixel coordinates (px, py) with given radius in pixels.
+ * Carve a crater at world pixel coordinates (px, py) with given radius in pixels.
  * Inner 60% → AIR, outer 40% → RUBBLE.
- * Returns info about the carve for particle emission.
  */
 export function carveExplosion(
   grid: TerrainGrid,
@@ -141,7 +130,6 @@ export function carveExplosion(
   const cx = Math.floor(px / CELL_SCALE);
   const cy = Math.floor(py / CELL_SCALE);
   const r = Math.ceil(radiusPx / CELL_SCALE);
-  const innerR = r * 0.6;
   let count = 0;
 
   for (let dy = -r; dy <= r; dy++) {
@@ -149,11 +137,13 @@ export function carveExplosion(
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > r) continue;
 
-      const gx = cx + dx;
-      const gy = cy + dy;
-      if (gx < 0 || gx >= grid.width || gy < 0 || gy >= grid.height) continue;
+      const worldGx = cx + dx;
+      const worldGy = cy + dy;
+      if (worldGx < 0 || worldGx >= grid.width) continue;
+      const localGy = worldGy - grid.worldYOffset;
+      if (localGy < 0 || localGy >= grid.height) continue;
 
-      const idx = gy * grid.width + gx;
+      const idx = localGy * grid.width + worldGx;
       const mat = grid.cells[idx] as Material;
       if (mat === Material.AIR || mat === Material.STONE) continue;
 

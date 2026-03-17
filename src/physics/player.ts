@@ -21,7 +21,6 @@ export interface Player {
   dead: boolean;
   respawnTimer: number;
   invulnTimer: number;
-  fellOffBottom: boolean; // true if most recent death was from falling off bottom
 }
 
 // Physics constants
@@ -53,16 +52,21 @@ export function createPlayer(x: number, y: number): Player {
     dead: false,
     respawnTimer: 0,
     invulnTimer: 0,
-    fellOffBottom: false,
   };
 }
 
-export function updatePlayer(player: Player, input: InputState, world: World, terrain: TerrainGrid, dt: number) {
+/**
+ * @param cameraScrollY — current camera scroll Y (for dynamic kill zone)
+ */
+export function updatePlayer(
+  player: Player, input: InputState, world: World, terrain: TerrainGrid,
+  dt: number, cameraScrollY: number,
+) {
   // Handle respawn timer
   if (player.dead) {
     player.respawnTimer -= dt;
     if (player.respawnTimer <= 0) {
-      respawnPlayer(player, world);
+      respawnPlayer(player, cameraScrollY, world);
     }
     return;
   }
@@ -120,8 +124,6 @@ export function updatePlayer(player: Player, input: InputState, world: World, te
   }
 
   // Variable jump height: cut velocity only on explicit release
-  // Using jumpReleased (not !input.jump) prevents a fast tap from
-  // triggering jump + immediately cutting it in the same frame.
   if (player.jumpHeld && !player.jumpCutoff && input.jumpReleased) {
     if (player.vy < 0) {
       player.vy *= JUMP_CUT_MULTIPLIER;
@@ -150,13 +152,12 @@ export function updatePlayer(player: Player, input: InputState, world: World, te
     player.jumpCutoff = false;
   }
 
-  // Kill zone check
-  if (
-    player.x < world.killZone.left ||
-    player.x > world.killZone.right ||
-    player.y > world.killZone.bottom
-  ) {
-    player.fellOffBottom = player.y > world.killZone.bottom;
+  // Dynamic kill zone: side walls + rising ceiling (no bottom — infinite descent)
+  if (player.x < -50 || player.x > world.width + 50) {
+    killPlayer(player);
+  }
+  // Rising ceiling: can't go above the camera
+  if (player.y < cameraScrollY - 60) {
     killPlayer(player);
   }
 }
@@ -168,12 +169,10 @@ function killPlayer(player: Player) {
   player.vy = 0;
 }
 
-function respawnPlayer(player: Player, world: World) {
-  // Pick a random floating platform and spawn just above it
-  const floatingPlats = world.platforms.slice(1);
-  const plat = floatingPlats[Math.floor(Math.random() * floatingPlats.length)];
-  player.x = plat.x + plat.w / 2;
-  player.y = plat.y - 60;
+function respawnPlayer(player: Player, cameraScrollY: number, world: World) {
+  // Respawn near the top of the visible screen, centered
+  player.x = world.width / 2;
+  player.y = cameraScrollY + 60;
   player.vx = 0;
   player.vy = 0;
   player.dead = false;

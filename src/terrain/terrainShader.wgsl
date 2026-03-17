@@ -10,9 +10,9 @@ struct Uniforms {
   cameraY: f32,
   dayPhase: f32,
   regenTimer: f32, // counts down from ~1.5s after terrain regen, for blink effect
+  worldYOffset: u32, // grid rows scrolled off top (for depth calculation)
   _pad0: f32,
   _pad1: f32,
-  _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -255,8 +255,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
   let mat = getMaterial(gx, gy);
 
   if (mat == MAT_AIR) {
-    let sky = renderSky(input.position.xy);
-    return vec4f(sky, 1.0);
+    // Pass world-space pixel position so sky scrolls with camera
+    let sky = renderSky(fragPos);
+    // Fade sky to dark cave background underground
+    let worldGy_air = i32(uniforms.worldYOffset) + gy;
+    let depthBelow_air = f32(max(worldGy_air - 80, 0)); // 80 = SURFACE_ROW
+    let caveFactor = smoothstep(0.0, 60.0, depthBelow_air);
+    let caveColor = vec3f(0.02, 0.02, 0.04);
+    let finalSky = mix(sky, caveColor, caveFactor);
+    return vec4f(finalSky, 1.0);
   }
 
   // --- Day/night terrain lighting ---
@@ -298,14 +305,24 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     color = vec3f(0.40 + noise * 0.06, 0.40 + noise * 0.06, 0.45 + noise * 0.06);
   }
 
-  // Day/night brightness: 0.5 at deep night, 1.0 at full day
-  let dayLight = mix(0.5, 1.0, info.dayFactor);
+  // Depth-based underground darkening
+  let worldGy = i32(uniforms.worldYOffset) + gy;
+  let surfaceRow = 80; // matches SURFACE_ROW in generator.ts
+  let depthBelow = f32(max(worldGy - surfaceRow, 0));
+  // 0 at surface, approaches 1 deep underground (smooth over ~200 rows)
+  let depthFactor = smoothstep(0.0, 200.0, depthBelow);
 
-  // Warm tint during dawn/dusk
-  let warmTint = vec3f(0.12, 0.04, 0.0) * info.horizonGlow;
+  // Day/night brightness, reduced underground
+  let dayLight = mix(0.5, 1.0, info.dayFactor * (1.0 - depthFactor * 0.8));
+
+  // Warm tint during dawn/dusk (fades underground)
+  let warmTint = vec3f(0.12, 0.04, 0.0) * info.horizonGlow * (1.0 - depthFactor);
 
   color = color * dayLight + warmTint * dayLight * 0.3;
   color *= edgeFactor * subVar;
+
+  // Extra darkening deep underground
+  color *= mix(1.0, 0.45, depthFactor);
 
   // Terrain regen blink effect — smooth pulse between terrain and sky
   if (uniforms.regenTimer > 0.0) {
@@ -317,7 +334,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let blinkStrength = smoothstep(0.0, 0.3, t);
     let skyBlend = wave * blinkStrength;
 
-    let sky = renderSky(input.position.xy);
+    let sky = renderSky(fragPos);
     color = mix(color, sky, skyBlend);
     // Subtle bright tint on the terrain portion
     color += vec3f(0.15, 0.25, 0.15) * (1.0 - wave) * blinkStrength;

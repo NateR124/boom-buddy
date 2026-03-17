@@ -37,8 +37,6 @@ const SPIRIT_BOMB_INITIAL_RADIUS = 5;
 
 /**
  * Compute spirit bomb radius from charge time.
- * Area grows with slight acceleration: A(t) = A₀ + k*t + 0.5*a*t²
- * So r(t) = sqrt(A(t) / π)
  */
 export function getSpiritBombRadius(chargeTime: number): number {
   const a0 = Math.PI * SPIRIT_BOMB_INITIAL_RADIUS * SPIRIT_BOMB_INITIAL_RADIUS;
@@ -48,7 +46,6 @@ export function getSpiritBombRadius(chargeTime: number): number {
 
 /**
  * Get the center Y of the spirit bomb given player Y and current radius.
- * Bottom of the sphere sits at a fixed gap above the player.
  */
 export function getSpiritBombCenterY(playerY: number, radius: number): number {
   return playerY - SPIRIT_BOMB_GAP - radius;
@@ -64,14 +61,12 @@ export function createChargeState(): ChargeState {
 }
 
 export function getChargeLevel(chargeTime: number): number {
-  // 3 levels: 0-0.3s = level 1, 0.3-0.8s = level 2, 0.8s+ = level 3
   if (chargeTime < 0.3) return 1;
   if (chargeTime < 0.8) return 2;
   return 3;
 }
 
 export function getChargeNormalized(chargeTime: number): number {
-  // 0 to 1 over ~1.2 seconds
   return Math.min(chargeTime / 1.2, 1);
 }
 
@@ -103,19 +98,17 @@ export function fireSpiritBomb(
   px: number, py: number,
   facing: number,
 ): Projectile {
-  // Bigger = slower (continuous scaling, no cap)
   const sizeScale = spiritRadius / 60;
   const speed = SPIRIT_BOMB_BASE_SPEED / (1 + sizeScale * 1.5);
 
-  // Launch at 45° downward in facing direction
   const centerY = getSpiritBombCenterY(py, spiritRadius);
-  const diag = speed * Math.SQRT1_2; // cos(45°) = sin(45°) = √2/2
+  const diag = speed * Math.SQRT1_2;
 
   return {
     x: px,
     y: centerY,
     vx: facing * diag,
-    vy: diag,
+    vy: diag, // downward at 45°
     radius: spiritRadius,
     power: chargeTime / 3,
     type: 'spirit_bomb',
@@ -124,14 +117,10 @@ export function fireSpiritBomb(
   };
 }
 
-/**
- * Compute crater radius in pixels for a projectile impact.
- */
 export function getCraterRadius(proj: Projectile): number {
   if (proj.type === 'spirit_bomb') {
     return proj.radius * 1.5;
   }
-  // Charge shot: 10-32px based on power
   return 8 + proj.power * 24;
 }
 
@@ -140,8 +129,12 @@ export interface ProjectileHit {
   carve: CarveResult;
 }
 
+/**
+ * @param cameraScrollY — current camera scroll Y for dynamic kill zone
+ */
 export function updateProjectiles(
-  projectiles: Projectile[], world: World, terrain: TerrainGrid, dt: number,
+  projectiles: Projectile[], world: World, terrain: TerrainGrid,
+  dt: number, cameraScrollY: number,
 ): ProjectileHit[] {
   const hits: ProjectileHit[] = [];
 
@@ -164,12 +157,11 @@ export function updateProjectiles(
       hits.push({ proj, carve });
     }
 
-    // Kill zone
+    // Dynamic kill zone: side walls + way above camera (no bottom limit)
     if (
-      proj.x < world.killZone.left ||
-      proj.x > world.killZone.right ||
-      proj.y > world.killZone.bottom ||
-      proj.y < world.killZone.top
+      proj.x < -200 ||
+      proj.x > world.width + 200 ||
+      proj.y < cameraScrollY - 800
     ) {
       proj.alive = false;
     }
