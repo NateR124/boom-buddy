@@ -61,6 +61,10 @@ async function main() {
   let gameTime = 0;
   let currentDay = 0; // tracks day number for terrain regeneration
   let regenTimer = 0; // counts down after terrain regen for blink effect
+  // Track bottom-fall deaths: if 3 in 10 seconds, regenerate terrain
+  const bottomFallTimes: number[] = [];
+  const BOTTOM_FALL_WINDOW = 10; // seconds
+  const BOTTOM_FALL_THRESHOLD = 3;
   // Track which particle slots were written this frame for partial upload
   let frameCursorStart = 0;
 
@@ -76,6 +80,22 @@ async function main() {
     // Death burst — fires when player just died
     if (!prevDead && player.dead) {
       emitRespawnBurst(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y);
+
+      // Track bottom-fall deaths for terrain respawn trigger
+      if (player.fellOffBottom) {
+        bottomFallTimes.push(gameTime);
+        // Prune old entries outside the window
+        while (bottomFallTimes.length > 0 && bottomFallTimes[0] < gameTime - BOTTOM_FALL_WINDOW) {
+          bottomFallTimes.shift();
+        }
+        if (bottomFallTimes.length >= BOTTOM_FALL_THRESHOLD) {
+          bottomFallTimes.length = 0; // reset so it doesn't re-trigger immediately
+          resetTerrainGrid(terrain, world.platforms);
+          resolvePlayerTerrainRegen(player, terrain);
+          addShake(camera, 3, 0.25);
+          regenTimer = 1.5;
+        }
+      }
     }
 
     if (player.dead) return;

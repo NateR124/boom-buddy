@@ -21,6 +21,7 @@ export interface Player {
   dead: boolean;
   respawnTimer: number;
   invulnTimer: number;
+  fellOffBottom: boolean; // true if most recent death was from falling off bottom
 }
 
 // Physics constants
@@ -52,6 +53,7 @@ export function createPlayer(x: number, y: number): Player {
     dead: false,
     respawnTimer: 0,
     invulnTimer: 0,
+    fellOffBottom: false,
   };
 }
 
@@ -154,6 +156,7 @@ export function updatePlayer(player: Player, input: InputState, world: World, te
     player.x > world.killZone.right ||
     player.y > world.killZone.bottom
   ) {
+    player.fellOffBottom = player.y > world.killZone.bottom;
     killPlayer(player);
   }
 }
