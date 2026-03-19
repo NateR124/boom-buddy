@@ -1,0 +1,37 @@
+<svg width="100%" viewBox="80 80 520 520" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<radialGradient id="greenGlow" cx="50%" cy="46%" r="30%">
+<stop offset="0%" stop-color="#44d62c" stop-opacity="0.16"/>
+<stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="gemTopL" x1="0.5" y1="0" x2="0" y2="1">
+<stop offset="0%" stop-color="#6ee860"/>
+<stop offset="100%" stop-color="#2aad30"/>
+</linearGradient>
+<linearGradient id="gemTopR" x1="0.5" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#44d62c"/>
+<stop offset="100%" stop-color="#1e8a22"/>
+</linearGradient>
+<linearGradient id="gemBotL" x1="0.5" y1="0" x2="0" y2="1">
+<stop offset="0%" stop-color="#1a6b2a"/>
+<stop offset="100%" stop-color="#0b3312"/>
+</linearGradient>
+<linearGradient id="gemBotR" x1="0.5" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#14501e"/>
+<stop offset="100%" stop-color="#081f0a"/>
+</linearGradient>
+</defs>
+
+<circle cx="340" cy="340" r="260" fill="#000"/>
+<circle cx="340" cy="340" r="260" fill="url(#greenGlow)"/>
+
+<g>
+<polygon points="340,185 210,340 340,348" fill="url(#gemTopL)"/>
+<polygon points="340,185 470,340 340,348" fill="url(#gemTopR)"/>
+<polygon points="210,340 340,500 340,348" fill="url(#gemBotL)"/>
+<polygon points="470,340 340,500 340,348" fill="url(#gemBotR)"/>
+</g>
+
+<line x1="340" y1="185" x2="340" y2="500" stroke="#66ff44" stroke-width="0.4" opacity="0.18"/>
+<line x1="210" y1="340" x2="470" y2="340" stroke="#66ff44" stroke-width="0.4" opacity="0.12"/>
+</svg>
