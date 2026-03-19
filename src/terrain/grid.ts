@@ -8,6 +8,7 @@ export const enum Material {
   DIRT = 2,
   STONE = 3,
   RUBBLE = 4,
+  WATER = 5,
 }
 
 export interface TerrainGrid {
@@ -37,8 +38,14 @@ export function getCell(grid: TerrainGrid, worldGx: number, worldGy: number): Ma
   return grid.cells[localGy * grid.width + worldGx] as Material;
 }
 
+/** Solid for collision purposes. Water is NOT solid (player passes through it). */
 export function isSolid(grid: TerrainGrid, worldGx: number, worldGy: number): boolean {
-  return getCell(grid, worldGx, worldGy) !== Material.AIR;
+  const mat = getCell(grid, worldGx, worldGy);
+  return mat !== Material.AIR && mat !== Material.WATER;
+}
+
+export function isWater(grid: TerrainGrid, worldGx: number, worldGy: number): boolean {
+  return getCell(grid, worldGx, worldGy) === Material.WATER;
 }
 
 /**
@@ -48,9 +55,7 @@ export function isSolid(grid: TerrainGrid, worldGx: number, worldGy: number): bo
 export function shiftGridUp(grid: TerrainGrid, rows: number): void {
   const { cells, width, height } = grid;
   const shift = rows * width;
-  // Move data up
   cells.copyWithin(0, shift);
-  // Clear the vacated bottom rows
   cells.fill(Material.AIR, (height - rows) * width);
   grid.worldYOffset += rows;
 }
@@ -66,46 +71,96 @@ export function setCell(grid: TerrainGrid, worldGx: number, worldGy: number, mat
 }
 
 /**
- * Run cellular automata: RUBBLE falls and settles.
+ * Run cellular automata: RUBBLE falls/slides, WATER falls/spreads.
  */
 export function stepAutomata(grid: TerrainGrid): void {
   const { cells, width, height } = grid;
   const preferLeft = Math.random() < 0.5;
+  const dir1 = preferLeft ? -1 : 1;
+  const dir2 = preferLeft ? 1 : -1;
 
+  // Scan bottom→top so falling doesn't cascade multiple rows in one step
   for (let gy = height - 2; gy >= 0; gy--) {
-    for (let gx = 0; gx < width; gx++) {
+    // Alternate scan direction per row to reduce lateral bias
+    const xStart = (gy & 1) ? width - 1 : 0;
+    const xEnd = (gy & 1) ? -1 : width;
+    const xStep = (gy & 1) ? -1 : 1;
+
+    for (let gx = xStart; gx !== xEnd; gx += xStep) {
       const idx = gy * width + gx;
-      if (cells[idx] !== Material.RUBBLE) continue;
+      const mat = cells[idx];
 
-      const below = (gy + 1) * width + gx;
-
-      if (cells[below] === Material.AIR) {
-        cells[below] = Material.RUBBLE;
-        cells[idx] = Material.AIR;
-        continue;
+      if (mat === Material.RUBBLE) {
+        const below = (gy + 1) * width + gx;
+        // Rubble falls into AIR or WATER
+        if (cells[below] === Material.AIR || cells[below] === Material.WATER) {
+          cells[below] = Material.RUBBLE;
+          cells[idx] = Material.AIR;
+          continue;
+        }
+        // Slide diagonally
+        if (trySlideRubble(cells, width, height, gx, gy, dir1)) continue;
+        trySlideRubble(cells, width, height, gx, gy, dir2);
+      } else if (mat === Material.WATER) {
+        const below = (gy + 1) * width + gx;
+        // Water falls down into AIR
+        if (gy + 1 < height && cells[below] === Material.AIR) {
+          cells[below] = Material.WATER;
+          cells[idx] = Material.AIR;
+          continue;
+        }
+        // Slide diagonally into AIR
+        if (trySlideWater(cells, width, height, gx, gy, dir1)) continue;
+        if (trySlideWater(cells, width, height, gx, gy, dir2)) continue;
+        // Spread sideways (water seeks its level)
+        if (trySpreadWater(cells, width, gx, gy, dir1)) continue;
+        trySpreadWater(cells, width, gx, gy, dir2);
       }
-
-      const dir1 = preferLeft ? -1 : 1;
-      const dir2 = preferLeft ? 1 : -1;
-
-      if (trySlide(cells, width, height, gx, gy, dir1)) continue;
-      trySlide(cells, width, height, gx, gy, dir2);
     }
   }
 }
 
-function trySlide(
+function trySlideRubble(
   cells: Uint8Array, width: number, height: number,
   gx: number, gy: number, dx: number,
 ): boolean {
   const nx = gx + dx;
   if (nx < 0 || nx >= width || gy + 1 >= height) return false;
-
   const sideIdx = gy * width + nx;
   const diagIdx = (gy + 1) * width + nx;
-
   if (cells[sideIdx] === Material.AIR && cells[diagIdx] === Material.AIR) {
     cells[diagIdx] = Material.RUBBLE;
+    cells[gy * width + gx] = Material.AIR;
+    return true;
+  }
+  return false;
+}
+
+function trySlideWater(
+  cells: Uint8Array, width: number, height: number,
+  gx: number, gy: number, dx: number,
+): boolean {
+  const nx = gx + dx;
+  if (nx < 0 || nx >= width || gy + 1 >= height) return false;
+  const sideIdx = gy * width + nx;
+  const diagIdx = (gy + 1) * width + nx;
+  if ((cells[sideIdx] === Material.AIR || cells[sideIdx] === Material.WATER) && cells[diagIdx] === Material.AIR) {
+    cells[diagIdx] = Material.WATER;
+    cells[gy * width + gx] = Material.AIR;
+    return true;
+  }
+  return false;
+}
+
+function trySpreadWater(
+  cells: Uint8Array, width: number,
+  gx: number, gy: number, dx: number,
+): boolean {
+  const nx = gx + dx;
+  if (nx < 0 || nx >= width) return false;
+  const sideIdx = gy * width + nx;
+  if (cells[sideIdx] === Material.AIR) {
+    cells[sideIdx] = Material.WATER;
     cells[gy * width + gx] = Material.AIR;
     return true;
   }
@@ -120,7 +175,7 @@ export interface CarveResult {
 
 /**
  * Carve a crater at world pixel coordinates (px, py) with given radius in pixels.
- * Inner 60% → AIR, outer 40% → RUBBLE.
+ * Destroys dirt/grass/rubble/water (evaporates water). Stone is immune.
  */
 export function carveExplosion(
   grid: TerrainGrid,

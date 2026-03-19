@@ -1,6 +1,6 @@
 import { InputState } from '../input';
 import { World } from './world';
-import { TerrainGrid } from '../terrain/grid';
+import { TerrainGrid, CELL_SCALE, isWater } from '../terrain/grid';
 import { resolvePlayerTerrainCollision } from '../terrain/terrainCollision';
 
 export interface Player {
@@ -142,6 +142,15 @@ export function updatePlayer(
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
+  // Water slowdown: check how many water cells overlap the player
+  const waterCells = getPlayerWaterOverlap(player, terrain);
+  if (waterCells > 0) {
+    const waterFraction = Math.min(waterCells / 20, 1.0); // 20 cells ≈ fully submerged
+    const slowFactor = 1.0 - 0.6 * waterFraction; // up to 60% speed reduction
+    player.vx *= slowFactor;
+    player.vy *= slowFactor; // slows falling too — buoyancy feel
+  }
+
   // Terrain collision
   player.grounded = false;
   resolvePlayerTerrainCollision(player, terrain);
@@ -180,4 +189,21 @@ function respawnPlayer(player: Player, cameraScrollY: number, world: World) {
   player.invulnTimer = INVULN_TIME;
   player.coyoteTimer = 0;
   player.jumpBufferTimer = 0;
+}
+
+function getPlayerWaterOverlap(player: Player, grid: TerrainGrid): number {
+  const halfW = player.w / 2;
+  const halfH = player.h / 2;
+  const leftG = Math.floor((player.x - halfW) / CELL_SCALE);
+  const rightG = Math.floor((player.x + halfW) / CELL_SCALE);
+  const topG = Math.floor((player.y - halfH) / CELL_SCALE);
+  const botG = Math.floor((player.y + halfH) / CELL_SCALE);
+
+  let count = 0;
+  for (let gy = topG; gy <= botG; gy++) {
+    for (let gx = leftG; gx <= rightG; gx++) {
+      if (isWater(grid, gx, gy)) count++;
+    }
+  }
+  return count;
 }

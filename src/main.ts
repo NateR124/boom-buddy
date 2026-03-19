@@ -6,7 +6,7 @@ import { createPlayerRenderer, renderPlayer } from './renderer/playerRenderer';
 import { createParticleSystem, uploadParticleRange, uploadAttractors, updateParticlesGPU, renderParticles, AttractorDef } from './renderer/particleRenderer';
 import { createProjectileRenderer, renderProjectiles } from './renderer/projectileRenderer';
 import { createTerrainRenderer, uploadTerrainGrid, renderTerrain } from './renderer/terrainRenderer';
-import { createTerrainGrid, shiftGridUp, CELL_SCALE, GRID_H } from './terrain/grid';
+import { createTerrainGrid, shiftGridUp, stepAutomata, CELL_SCALE, GRID_H } from './terrain/grid';
 import { generateRows } from './terrain/generator';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
@@ -96,6 +96,11 @@ async function main() {
       const oldBottom = bufferBottomWorldGy;
       shiftGridUp(terrain, SHIFT_AMOUNT);
       generateRows(terrain, oldBottom, SHIFT_AMOUNT);
+    }
+
+    // Cellular automata: rubble settling + water flow (3 steps for visible flow)
+    for (let i = 0; i < 3; i++) {
+      stepAutomata(terrain);
     }
 
     // Charge logic

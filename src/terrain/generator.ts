@@ -36,6 +36,11 @@ function caveNoise(gx: number, gy: number): number {
   return v;
 }
 
+/** Separate noise layer for water pocket placement. */
+function waterNoise(gx: number, gy: number): number {
+  return smoothNoise(gx * 0.04 + 500, gy * 0.04 + 300);
+}
+
 /**
  * Generate terrain for rows [startWorldGy, startWorldGy + count) into the grid buffer.
  * Rows above SURFACE_ROW are AIR. The surface row is GRASS. Below is procedural underground.
@@ -86,7 +91,22 @@ export function generateRows(grid: TerrainGrid, startWorldGy: number, count: num
       const isShelf = shelfPhase >= 0 && shelfPhase <= 1;
 
       if (n < caveThreshold && !isShelf) {
-        grid.cells[rowOffset + gx] = Material.AIR;
+        // Place water in caves below depth 40 where water noise is high
+        // and there's solid ground below (water pools at cave bottoms)
+        if (depth > 15 && waterNoise(gx, worldGy) > 0.42) {
+          // Check if cell below is solid (will hold water)
+          const belowN = caveNoise(gx, worldGy + 1);
+          const belowDepth = depth + 1;
+          let belowCaveThreshold: number;
+          if (belowDepth < 80) belowCaveThreshold = 0.42;
+          else if (belowDepth < 250) belowCaveThreshold = 0.45;
+          else belowCaveThreshold = 0.38;
+          const belowIsSolid = belowN >= belowCaveThreshold;
+
+          grid.cells[rowOffset + gx] = belowIsSolid ? Material.WATER : Material.AIR;
+        } else {
+          grid.cells[rowOffset + gx] = Material.AIR;
+        }
       } else {
         grid.cells[rowOffset + gx] = Material.DIRT;
 
