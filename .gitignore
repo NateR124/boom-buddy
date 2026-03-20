@@ -2,3 +2,5 @@ node_modules/
 dist/
 .claude/
 *.local
+feature-requests.md
+feature-requestsv2boogaloo.md

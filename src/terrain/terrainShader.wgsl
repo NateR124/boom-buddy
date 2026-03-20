@@ -45,6 +45,8 @@ const MAT_GRASS: u32  = 1u;
 const MAT_DIRT: u32   = 2u;
 const MAT_STONE: u32  = 3u;
 const MAT_RUBBLE: u32 = 4u;
+const MAT_WATER: u32  = 5u;
+const MAT_WALL: u32   = 6u;
 
 const TAU: f32 = 6.28318530718;
 const PI: f32  = 3.14159265359;
@@ -254,9 +256,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
   let gy = i32(fragPos.y) / 2;
   let mat = getMaterial(gx, gy);
 
+  // Sky uses raw screen position so it stays fixed behind everything
+  let screenPos = input.position.xy;
+
   if (mat == MAT_AIR) {
-    // Pass world-space pixel position so sky scrolls with camera
-    let sky = renderSky(fragPos);
+    let sky = renderSky(screenPos);
     // Fade sky to dark cave background underground
     let worldGy_air = i32(uniforms.worldYOffset) + gy;
     let depthBelow_air = f32(max(worldGy_air - 80, 0)); // 80 = SURFACE_ROW
@@ -264,6 +268,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let caveColor = vec3f(0.02, 0.02, 0.04);
     let finalSky = mix(sky, caveColor, caveFactor);
     return vec4f(finalSky, 1.0);
+  }
+
+  if (mat == MAT_WATER) {
+    // Translucent blue water with subtle animation
+    let sky = renderSky(screenPos);
+    let worldGy_w = i32(uniforms.worldYOffset) + gy;
+    let depthBelow_w = f32(max(worldGy_w - 80, 0));
+    let caveFactor_w = smoothstep(0.0, 60.0, depthBelow_w);
+    let caveColor_w = vec3f(0.02, 0.02, 0.04);
+    let bgColor = mix(sky, caveColor_w, caveFactor_w);
+
+    let noise_w = hash(vec2u(u32(gx), u32(gy)));
+    let wave = 0.5 + 0.5 * sin(uniforms.time * 2.0 + f32(gx) * 0.3 + f32(gy) * 0.2);
+    let waterColor = vec3f(0.15 + noise_w * 0.05, 0.30 + wave * 0.08, 0.55 + wave * 0.1);
+    // Blend water over background
+    let finalWater = mix(bgColor, waterColor, 0.75);
+    return vec4f(finalWater, 1.0);
   }
 
   // --- Day/night terrain lighting ---
@@ -303,6 +324,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     color = vec3f(0.52 + noise * 0.08, 0.38 + noise * 0.06, 0.20 + noise * 0.04);
   } else if (mat == MAT_STONE) {
     color = vec3f(0.40 + noise * 0.06, 0.40 + noise * 0.06, 0.45 + noise * 0.06);
+  } else if (mat == MAT_WALL) {
+    // Dark indestructible wall material
+    color = vec3f(0.12 + noise * 0.03, 0.10 + noise * 0.03, 0.14 + noise * 0.03);
   }
 
   // Depth-based underground darkening
@@ -334,7 +358,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let blinkStrength = smoothstep(0.0, 0.3, t);
     let skyBlend = wave * blinkStrength;
 
-    let sky = renderSky(fragPos);
+    let sky = renderSky(screenPos);
     color = mix(color, sky, skyBlend);
     // Subtle bright tint on the terrain portion
     color += vec3f(0.15, 0.25, 0.15) * (1.0 - wave) * blinkStrength;

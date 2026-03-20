@@ -2,6 +2,17 @@ import { InputState } from '../input';
 import { World } from './world';
 import { TerrainGrid, CELL_SCALE, isWater } from '../terrain/grid';
 import { resolvePlayerTerrainCollision } from '../terrain/terrainCollision';
+import { HealthConfig, createDefaultHealthConfig } from './healthConfig';
+
+let healthConfig: HealthConfig = createDefaultHealthConfig();
+
+export function setHealthConfig(cfg: HealthConfig): void {
+  healthConfig = cfg;
+}
+
+export function getHealthConfig(): HealthConfig {
+  return healthConfig;
+}
 
 export interface Player {
   x: number;
@@ -21,6 +32,9 @@ export interface Player {
   dead: boolean;
   respawnTimer: number;
   invulnTimer: number;
+  // Health
+  hp: number;
+  maxHp: number;
 }
 
 // Physics constants
@@ -52,6 +66,8 @@ export function createPlayer(x: number, y: number): Player {
     dead: false,
     respawnTimer: 0,
     invulnTimer: 0,
+    hp: 100,
+    maxHp: 100,
   };
 }
 
@@ -74,6 +90,11 @@ export function updatePlayer(
   // Invulnerability countdown
   if (player.invulnTimer > 0) {
     player.invulnTimer -= dt;
+  }
+
+  // HP regen
+  if (player.hp < player.maxHp) {
+    player.hp = Math.min(player.maxHp, player.hp + healthConfig.regenPerSecond * dt);
   }
 
   // Horizontal movement
@@ -146,7 +167,7 @@ export function updatePlayer(
   const waterCells = getPlayerWaterOverlap(player, terrain);
   if (waterCells > 0) {
     const waterFraction = Math.min(waterCells / 20, 1.0); // 20 cells ≈ fully submerged
-    const slowFactor = 1.0 - 0.6 * waterFraction; // up to 60% speed reduction
+    const slowFactor = 1.0 - 0.0 * waterFraction; // up to 0% speed reduction (disabled)
     player.vx *= slowFactor;
     player.vy *= slowFactor; // slows falling too — buoyancy feel
   }
@@ -171,6 +192,15 @@ export function updatePlayer(
   }
 }
 
+export function damagePlayer(player: Player, amount: number): void {
+  if (player.dead || player.invulnTimer > 0) return;
+  player.hp -= amount;
+  if (player.hp <= 0) {
+    player.hp = 0;
+    killPlayer(player);
+  }
+}
+
 function killPlayer(player: Player) {
   player.dead = true;
   player.respawnTimer = RESPAWN_DELAY;
@@ -187,6 +217,7 @@ function respawnPlayer(player: Player, cameraScrollY: number, world: World) {
   player.dead = false;
   player.grounded = false;
   player.invulnTimer = INVULN_TIME;
+  player.hp = player.maxHp;
   player.coyoteTimer = 0;
   player.jumpBufferTimer = 0;
 }

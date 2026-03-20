@@ -39,14 +39,93 @@
       text-align: center;
       padding: 2rem;
     }
+    #game-wrapper {
+      position: relative;
+    }
+    #key-hints {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      align-items: end;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .key-hint {
+      width: 44px;
+      height: 44px;
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.6s ease-out;
+    }
+    .key-hint.wide {
+      width: 100px;
+    }
+    .key-hint.used {
+      opacity: 0;
+    }
+    .key-row {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
   </style>
 </head>
 <body>
+  <div id="game-wrapper">
   <canvas id="game-canvas" width="960" height="540"></canvas>
   <div id="fallback">
     <p>WebGPU is not supported in this browser.</p>
     <p>Try Chrome 113+ or Edge 113+.</p>
   </div>
+  <div id="key-hints">
+    <div class="key-row">
+      <div class="key-hint" data-key="KeyA">A</div>
+    </div>
+    <div class="key-row">
+      <div class="key-hint" data-key="KeyW">W</div>
+      <div class="key-hint" data-key="KeyS">S</div>
+    </div>
+    <div class="key-row">
+      <div class="key-hint" data-key="KeyD">D</div>
+    </div>
+    <div class="key-row" style="margin-left: 10px;">
+      <div class="key-hint wide" data-key="Space">SPACE</div>
+    </div>
+  </div>
+  </div>
+  <script>
+    (function() {
+      var hints = document.querySelectorAll('.key-hint');
+      var map = {};
+      hints.forEach(function(el) { map[el.dataset.key] = el; });
+      var remaining = hints.length;
+      window.addEventListener('keydown', function(e) {
+        var el = map[e.code];
+        if (el && !el.classList.contains('used')) {
+          el.classList.add('used');
+          remaining--;
+          if (remaining <= 0) {
+            setTimeout(function() {
+              var container = document.getElementById('key-hints');
+              if (container) container.remove();
+            }, 700);
+          }
+        }
+      });
+    })();
+  </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

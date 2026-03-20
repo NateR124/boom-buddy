@@ -1,8 +1,16 @@
 import { World } from './world';
 import { TerrainGrid, carveExplosion, CarveResult } from '../terrain/grid';
 import { projectileHitsTerrain } from '../terrain/terrainCollision';
+import { BombConfig, createDefaultBombConfig } from './bombConfig';
 
 export type ProjectileType = 'charge_shot' | 'spirit_bomb';
+
+// Active bomb config — mutable so the debug panel can swap it
+let bombConfig: BombConfig = createDefaultBombConfig();
+
+export function setBombConfig(cfg: BombConfig): void {
+  bombConfig = cfg;
+}
 
 export interface Projectile {
   x: number;
@@ -14,6 +22,9 @@ export interface Projectile {
   type: ProjectileType;
   alive: boolean;
   level: number;       // charge level 1-3 for charge shot, continuous for spirit bomb
+  density: number;     // accumulated density from Purple Ball stacks
+  windStacks: number;  // Wind Ball stacks at time of firing
+  windModifier: number; // wind ball modifier at time of firing
 }
 
 export interface ChargeState {
@@ -22,6 +33,8 @@ export interface ChargeState {
   chargeType: 'mega' | 'spirit' | null;
   // Spirit bomb visual state
   spiritRadius: number;
+  // Density accumulated during this charge (from Purple Ball stacks)
+  density: number;
 }
 
 const CHARGE_SHOT_SPEED = 600;
@@ -30,9 +43,6 @@ const SPIRIT_BOMB_BASE_SPEED = 200;
 // Spirit bomb positioning: bottom of sphere sits this far above the player center
 const SPIRIT_BOMB_GAP = 20;
 
-// Area growth: linear base + slight quadratic acceleration
-const SPIRIT_BOMB_AREA_PER_SEC = 3000;
-const SPIRIT_BOMB_AREA_ACCEL = 800; // px²/s² — subtle ramp-up over time
 const SPIRIT_BOMB_INITIAL_RADIUS = 5;
 
 /**
@@ -40,7 +50,7 @@ const SPIRIT_BOMB_INITIAL_RADIUS = 5;
  */
 export function getSpiritBombRadius(chargeTime: number): number {
   const a0 = Math.PI * SPIRIT_BOMB_INITIAL_RADIUS * SPIRIT_BOMB_INITIAL_RADIUS;
-  const area = a0 + SPIRIT_BOMB_AREA_PER_SEC * chargeTime + 0.5 * SPIRIT_BOMB_AREA_ACCEL * chargeTime * chargeTime;
+  const area = a0 + bombConfig.chargeSpeed * chargeTime + 0.5 * bombConfig.chargeAcceleration * chargeTime * chargeTime;
   return Math.sqrt(area / Math.PI);
 }
 
@@ -57,6 +67,7 @@ export function createChargeState(): ChargeState {
     chargeTime: 0,
     chargeType: null,
     spiritRadius: 0,
+    density: 0,
   };
 }
 
@@ -89,6 +100,9 @@ export function fireChargeShot(
     type: 'charge_shot',
     alive: true,
     level,
+    density: 0,
+    windStacks: 0,
+    windModifier: 0,
   };
 }
 
@@ -97,12 +111,19 @@ export function fireSpiritBomb(
   spiritRadius: number,
   px: number, py: number,
   facing: number,
+  density = 0,
+  windStacks = 0,
+  windModifier = 0,
 ): Projectile {
   const sizeScale = spiritRadius / 60;
-  const speed = SPIRIT_BOMB_BASE_SPEED / (1 + sizeScale * 1.5);
+  const speed = SPIRIT_BOMB_BASE_SPEED / (1 + sizeScale * bombConfig.fallSpeedSizeDebuff);
 
   const centerY = getSpiritBombCenterY(py, spiritRadius);
   const diag = speed * Math.SQRT1_2;
+
+  // Density boosts power
+  const basePower = chargeTime / 3;
+  const densityBonus = density * 0.15; // each density point adds 15% of base
 
   return {
     x: px,
@@ -110,16 +131,20 @@ export function fireSpiritBomb(
     vx: facing * diag,
     vy: diag, // downward at 45°
     radius: spiritRadius,
-    power: chargeTime / 3,
+    power: basePower + densityBonus,
     type: 'spirit_bomb',
     alive: true,
     level: 0,
+    density,
+    windStacks,
+    windModifier,
   };
 }
 
 export function getCraterRadius(proj: Projectile): number {
   if (proj.type === 'spirit_bomb') {
-    return proj.radius * 1.5;
+    const densityScale = 1 + proj.density * 0.05; // each density point adds 5% crater size
+    return proj.radius * 1.5 * densityScale;
   }
   return 8 + proj.power * 24;
 }
@@ -143,11 +168,19 @@ export function updateProjectiles(
 
     // Spirit bombs have gravity
     if (proj.type === 'spirit_bomb') {
-      proj.vy += 200 * dt;
+      proj.vy += bombConfig.fallSpeed * dt;
     }
 
     proj.x += proj.vx * dt;
     proj.y += proj.vy * dt;
+
+    // Wind Ball passive terrain destruction while flying
+    if (proj.type === 'spirit_bomb' && proj.windStacks > 0) {
+      const windRadius = proj.radius * proj.windStacks * proj.windModifier;
+      if (windRadius > 2) {
+        carveExplosion(terrain, proj.x, proj.y, windRadius);
+      }
+    }
 
     // Check terrain collision
     if (projectileHitsTerrain(proj, terrain)) {

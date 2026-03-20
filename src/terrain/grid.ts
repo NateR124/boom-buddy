@@ -9,6 +9,7 @@ export const enum Material {
   STONE = 3,
   RUBBLE = 4,
   WATER = 5,
+  WALL = 6,
 }
 
 export interface TerrainGrid {
@@ -200,7 +201,7 @@ export function carveExplosion(
 
       const idx = localGy * grid.width + worldGx;
       const mat = grid.cells[idx] as Material;
-      if (mat === Material.AIR || mat === Material.STONE) continue;
+      if (mat === Material.AIR || mat === Material.WALL) continue;
 
       grid.cells[idx] = Material.AIR;
       count++;

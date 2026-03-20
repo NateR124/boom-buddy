@@ -2,13 +2,21 @@ import { Player } from '../physics/player';
 import { Projectile } from '../physics/projectile';
 import { TerrainGrid, CELL_SCALE, isSolid } from './grid';
 
+// Collision insets — shrink the player's collision box so it's forgiving.
+// Visual size is w=20, h=40, but collision checks use smaller bounds.
+const INSET_X = 3;  // pixels shaved off each side horizontally
+const INSET_Y_TOP = 4;  // pixels shaved off the head
+const INSET_Y_BOT = 1;  // pixels shaved off the feet (keep ground feel tight)
+const CORNER_INSET_Y = 5; // extra vertical inset for Y-axis checks (avoids corner snagging)
+const CORNER_INSET_X = 6; // extra horizontal inset for X-axis checks
+
 /**
  * Resolve player collision against the terrain grid.
  * Strategy: move player, then scan grid cells overlapping the player AABB.
  * Resolve Y axis first (ground/ceiling), then X (walls).
  */
 export function resolvePlayerTerrainCollision(player: Player, grid: TerrainGrid): void {
-  const halfW = player.w / 2;
+  const halfW = player.w / 2 - INSET_X;
   const halfH = player.h / 2;
 
   // --- Y-axis resolution (ground + ceiling) ---
@@ -19,15 +27,14 @@ export function resolvePlayerTerrainCollision(player: Player, grid: TerrainGrid)
 }
 
 function resolvePlayerY(player: Player, grid: TerrainGrid, halfW: number, halfH: number): void {
-  // Player AABB edges in grid coords (inset 1px to avoid corner catching)
-  const leftG = Math.floor((player.x - halfW + 1) / CELL_SCALE);
-  const rightG = Math.floor((player.x + halfW - 1) / CELL_SCALE);
+  // Extra horizontal inset for Y checks — lets player squeeze past corners
+  const leftG = Math.floor((player.x - halfW + CORNER_INSET_Y) / CELL_SCALE);
+  const rightG = Math.floor((player.x + halfW - CORNER_INSET_Y) / CELL_SCALE);
 
   if (player.vy >= 0) {
-    // Falling or stationary — scan from center down to feet to find topmost ground
     const centerG = Math.floor(player.y / CELL_SCALE);
-    const footY = player.y + halfH;
-    const footG = Math.floor(footY / CELL_SCALE) + 1; // +1 for tolerance
+    const footY = player.y + halfH - INSET_Y_BOT;
+    const footG = Math.floor(footY / CELL_SCALE) + 1;
 
     let groundY = Infinity;
     for (let gx = leftG; gx <= rightG; gx++) {
@@ -37,21 +44,20 @@ function resolvePlayerY(player: Player, grid: TerrainGrid, halfW: number, halfH:
           if (cellTop < groundY) {
             groundY = cellTop;
           }
-          break; // found topmost solid in this column, stop scanning down
+          break;
         }
       }
     }
 
     if (groundY < Infinity) {
-      player.y = groundY - halfH;
+      player.y = groundY - halfH + INSET_Y_BOT;
       player.vy = 0;
       player.grounded = true;
     }
   } else {
-    // Rising — scan from center up to head to find lowest ceiling
     const centerG = Math.floor(player.y / CELL_SCALE);
-    const headY = player.y - halfH;
-    const headG = Math.floor(headY / CELL_SCALE) - 1; // -1 for tolerance
+    const headY = player.y - halfH + INSET_Y_TOP;
+    const headG = Math.floor(headY / CELL_SCALE) - 1;
 
     let ceilingY = -Infinity;
     for (let gx = leftG; gx <= rightG; gx++) {
@@ -61,24 +67,23 @@ function resolvePlayerY(player: Player, grid: TerrainGrid, halfW: number, halfH:
           if (cellBot > ceilingY) {
             ceilingY = cellBot;
           }
-          break; // found lowest solid in this column, stop scanning up
+          break;
         }
       }
     }
 
     if (ceilingY > -Infinity) {
-      player.y = ceilingY + halfH;
+      player.y = ceilingY + halfH - INSET_Y_TOP;
       player.vy = 0;
     }
   }
 }
 
 function resolvePlayerX(player: Player, grid: TerrainGrid, halfW: number, halfH: number): void {
-  // Use updated Y position for X checks (avoid corner sticking)
-  const topG = Math.floor((player.y - halfH + 2) / CELL_SCALE);
-  const botG = Math.floor((player.y + halfH - 2) / CELL_SCALE);
+  // Extra vertical inset for X checks — lets player slide past ledges
+  const topG = Math.floor((player.y - halfH + CORNER_INSET_X) / CELL_SCALE);
+  const botG = Math.floor((player.y + halfH - CORNER_INSET_X) / CELL_SCALE);
 
-  // Only check walls in the direction of movement (strict inequality prevents drift at rest)
   if (player.vx < 0) {
     const leftEdge = player.x - halfW;
     const leftG = Math.floor(leftEdge / CELL_SCALE);
@@ -108,23 +113,18 @@ function resolvePlayerX(player: Player, grid: TerrainGrid, halfW: number, halfH:
       }
     }
   }
-
 }
 
 /**
  * Check if a projectile hits any solid terrain cell.
- * For spirit bombs: center-point check.
- * For charge shots: circle scan.
  */
 export function projectileHitsTerrain(proj: Projectile, grid: TerrainGrid): boolean {
   if (proj.type === 'spirit_bomb') {
-    // Center point
     const gx = Math.floor(proj.x / CELL_SCALE);
     const gy = Math.floor(proj.y / CELL_SCALE);
     return isSolid(grid, gx, gy);
   }
 
-  // Circle scan for charge shots
   const r = Math.ceil(proj.radius / CELL_SCALE);
   const cx = Math.floor(proj.x / CELL_SCALE);
   const cy = Math.floor(proj.y / CELL_SCALE);

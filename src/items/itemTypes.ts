@@ -1,0 +1,21 @@
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
+
+export type ItemId = 'purple_ball' | 'wind_ball' | 'smiley_face';
+
+export interface ItemDef {
+  id: ItemId;
+  name: string;
+  rarity: Rarity;
+  color: string; // render color
+  symbol: string; // single character for display
+}
+
+export const ITEM_DEFS: ItemDef[] = [
+  { id: 'purple_ball', name: 'Purple Ball', rarity: 'common', color: '#a040ff', symbol: '\u25CF' },
+  { id: 'wind_ball', name: 'Wind Ball', rarity: 'uncommon', color: '#ffffff', symbol: '\u25CE' },
+  { id: 'smiley_face', name: 'Smiley Face', rarity: 'rare', color: '#ffdd00', symbol: '\u263A' },
+];
+
+export function getItemDef(id: ItemId): ItemDef {
+  return ITEM_DEFS.find(d => d.id === id)!;
+}
