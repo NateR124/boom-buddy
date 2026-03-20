@@ -174,14 +174,6 @@ export function updateProjectiles(
     proj.x += proj.vx * dt;
     proj.y += proj.vy * dt;
 
-    // Wind Ball passive terrain destruction while flying
-    if (proj.type === 'spirit_bomb' && proj.windStacks > 0) {
-      const windRadius = proj.radius * proj.windStacks * proj.windModifier;
-      if (windRadius > 2) {
-        carveExplosion(terrain, proj.x, proj.y, windRadius);
-      }
-    }
-
     // Check terrain collision
     if (projectileHitsTerrain(proj, terrain)) {
       proj.alive = false;

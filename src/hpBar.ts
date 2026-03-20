@@ -1,45 +1,41 @@
 import { Player } from './physics/player';
 
 export interface HpBar {
-  update(player: Player): void;
+  update(player: Player, cameraX: number, cameraY: number): void;
 }
+
+const FADE_DELAY = 6; // seconds before fading
+const FADE_DURATION = 1.5; // seconds to fully fade out
 
 export function createHpBar(): HpBar {
   const style = document.createElement('style');
   style.textContent = `
     #hp-bar-container {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      width: 140px;
       pointer-events: none;
       z-index: 10;
+      transition: opacity 0.5s ease;
     }
     #hp-bar-bg {
-      width: 100%;
-      height: 10px;
+      width: 40px;
+      height: 4px;
       background: rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
       overflow: hidden;
     }
     #hp-bar-fill {
       height: 100%;
       background: #4f4;
-      border-radius: 2px;
+      border-radius: 1px;
       transition: width 0.15s ease, background-color 0.3s ease;
-    }
-    #hp-bar-text {
-      font-family: monospace;
-      font-size: 9px;
-      color: rgba(255, 255, 255, 0.6);
-      margin-top: 2px;
     }
   `;
   document.head.appendChild(style);
 
   const container = document.createElement('div');
   container.id = 'hp-bar-container';
+  container.style.opacity = '0';
 
   const bg = document.createElement('div');
   bg.id = 'hp-bar-bg';
@@ -48,25 +44,37 @@ export function createHpBar(): HpBar {
   fill.id = 'hp-bar-fill';
   fill.style.width = '100%';
 
-  const text = document.createElement('div');
-  text.id = 'hp-bar-text';
-  text.textContent = '100 / 100';
-
   bg.appendChild(fill);
   container.appendChild(bg);
-  container.appendChild(text);
 
   const wrapper = document.getElementById('game-wrapper');
-  if (wrapper) {
-    wrapper.appendChild(container);
-  }
+  if (wrapper) wrapper.appendChild(container);
+
+  let lastHp = -1;
+  let lastDamageTime = -Infinity;
+  let gameTimeAcc = 0;
 
   return {
-    update(player: Player) {
+    update(player: Player, cameraX: number, cameraY: number) {
+      gameTimeAcc += 1 / 60; // approximate frame time
+
+      // Detect damage taken
+      if (lastHp < 0) lastHp = player.hp;
+      if (player.hp < lastHp) {
+        lastDamageTime = gameTimeAcc;
+      }
+      lastHp = player.hp;
+
+      // Position above player
+      const screenX = player.x + cameraX;
+      const screenY = player.y + cameraY;
+      container.style.left = (screenX - 20) + 'px';
+      container.style.top = (screenY - 24) + 'px';
+
+      // Fill bar
       const pct = Math.max(0, player.hp / player.maxHp) * 100;
       fill.style.width = pct + '%';
 
-      // Color shifts: green > yellow > red
       if (pct > 60) {
         fill.style.backgroundColor = '#4f4';
       } else if (pct > 30) {
@@ -75,7 +83,14 @@ export function createHpBar(): HpBar {
         fill.style.backgroundColor = '#f44';
       }
 
-      text.textContent = Math.ceil(player.hp) + ' / ' + player.maxHp;
+      // Fade logic
+      const timeSinceDamage = gameTimeAcc - lastDamageTime;
+      if (timeSinceDamage < FADE_DELAY) {
+        container.style.opacity = '1';
+      } else {
+        const fadeProgress = Math.min((timeSinceDamage - FADE_DELAY) / FADE_DURATION, 1);
+        container.style.opacity = String(1 - fadeProgress);
+      }
     },
   };
 }

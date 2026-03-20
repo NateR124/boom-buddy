@@ -33,6 +33,7 @@ interface Category {
   color: string;
   params: ParamDef[];
   collapsed?: boolean;
+  children?: Category[];
 }
 
 function cave(key: keyof CaveConfig, label: string, min: number, max: number, step: number): ParamDef {
@@ -57,31 +58,89 @@ function enemy(key: keyof EnemyConfig, label: string, min: number, max: number, 
 
 const CATEGORIES: Category[] = [
   {
-    title: 'General',
+    title: 'Cave Generation',
     color: '#6af',
+    collapsed: true,
     params: [
       cave('seed', 'Seed', 0, 999999, 1),
       cave('wallThickness', 'Wall Thickness', 1, 20, 1),
     ],
-  },
-  {
-    title: 'Path Structure',
-    color: '#fa6',
-    params: [
-      cave('minPathLength', 'Min Length', 20, 500, 10),
-      cave('maxPathLength', 'Max Length', 50, 800, 10),
-      cave('trunkBaseWidth', 'Trunk Width', 8, 60, 1),
-      cave('driftAmplitude', 'Drift Amplitude', 0, 150, 5),
-    ],
-  },
-  {
-    title: 'Branching',
-    color: '#af6',
-    params: [
-      cave('branchCheckInterval', 'Check Interval', 10, 200, 5),
-      cave('branchChance', 'Chance', 0, 1, 0.05),
-      cave('branchOffsetMin', 'Offset Min', 10, 100, 5),
-      cave('branchOffsetMax', 'Offset Max', 20, 150, 5),
+    children: [
+      {
+        title: 'Path Structure',
+        color: '#fa6',
+        collapsed: true,
+        params: [
+          cave('minPathLength', 'Min Length', 20, 500, 10),
+          cave('maxPathLength', 'Max Length', 50, 800, 10),
+          cave('trunkBaseWidth', 'Trunk Width', 8, 60, 1),
+          cave('driftAmplitude', 'Drift Amplitude', 0, 150, 5),
+        ],
+      },
+      {
+        title: 'Branching',
+        color: '#af6',
+        collapsed: true,
+        params: [
+          cave('branchCheckInterval', 'Check Interval', 10, 200, 5),
+          cave('branchChance', 'Chance', 0, 1, 0.05),
+          cave('branchOffsetMin', 'Offset Min', 10, 100, 5),
+          cave('branchOffsetMax', 'Offset Max', 20, 150, 5),
+        ],
+      },
+      {
+        title: 'Worm',
+        color: '#f6a',
+        collapsed: true,
+        params: [
+          cave('wormWidthMin', 'Width Min', 5, 40, 1),
+          cave('wormWidthMax', 'Width Max', 10, 60, 1),
+        ],
+      },
+      {
+        title: 'Sinusoidal',
+        color: '#a6f',
+        collapsed: true,
+        params: [
+          cave('sinusoidalWidthMin', 'Width Min', 5, 40, 1),
+          cave('sinusoidalWidthMax', 'Width Max', 10, 60, 1),
+        ],
+      },
+      {
+        title: 'Giant Cave',
+        color: '#6fa',
+        collapsed: true,
+        params: [
+          cave('giantCaveWidthMin', 'Width Min', 15, 80, 1),
+          cave('giantCaveWidthMax', 'Width Max', 20, 120, 1),
+        ],
+      },
+      {
+        title: 'Slow Grow',
+        color: '#ff6',
+        collapsed: true,
+        params: [
+          cave('slowGrowWidthMin', 'Width Min', 10, 60, 1),
+          cave('slowGrowWidthMax', 'Width Max', 15, 80, 1),
+        ],
+      },
+      {
+        title: 'Fast Grow / Slow Shrink',
+        color: '#f96',
+        collapsed: true,
+        params: [
+          cave('fastGrowWidthMin', 'Width Min', 10, 60, 1),
+          cave('fastGrowWidthMax', 'Width Max', 15, 80, 1),
+        ],
+      },
+      {
+        title: 'Environment',
+        color: '#6cf',
+        collapsed: true,
+        params: [
+          cave('waterThreshold', 'Water Threshold', 0, 1, 0.05),
+        ],
+      },
     ],
   },
   {
@@ -104,51 +163,6 @@ const CATEGORIES: Category[] = [
       health('regenPerSecond', 'Regen / sec', 0, 10, 0.1),
       health('bombDamageThreshold', 'Bomb Dmg Threshold', 10, 5000, 50),
       health('bombDamagePerSecond', 'Bomb Dmg / sec', 1, 50, 1),
-    ],
-  },
-  {
-    title: 'Worm',
-    color: '#f6a',
-    collapsed: true,
-    params: [
-      cave('wormWidthMin', 'Width Min', 5, 40, 1),
-      cave('wormWidthMax', 'Width Max', 10, 60, 1),
-    ],
-  },
-  {
-    title: 'Sinusoidal',
-    color: '#a6f',
-    collapsed: true,
-    params: [
-      cave('sinusoidalWidthMin', 'Width Min', 5, 40, 1),
-      cave('sinusoidalWidthMax', 'Width Max', 10, 60, 1),
-    ],
-  },
-  {
-    title: 'Giant Cave',
-    color: '#6fa',
-    collapsed: true,
-    params: [
-      cave('giantCaveWidthMin', 'Width Min', 15, 80, 1),
-      cave('giantCaveWidthMax', 'Width Max', 20, 120, 1),
-    ],
-  },
-  {
-    title: 'Slow Grow',
-    color: '#ff6',
-    collapsed: true,
-    params: [
-      cave('slowGrowWidthMin', 'Width Min', 10, 60, 1),
-      cave('slowGrowWidthMax', 'Width Max', 15, 80, 1),
-    ],
-  },
-  {
-    title: 'Fast Grow / Slow Shrink',
-    color: '#f96',
-    collapsed: true,
-    params: [
-      cave('fastGrowWidthMin', 'Width Min', 10, 60, 1),
-      cave('fastGrowWidthMax', 'Width Max', 15, 80, 1),
     ],
   },
   {
@@ -179,13 +193,6 @@ const CATEGORIES: Category[] = [
       enemy('batHp', 'Bat HP', 1, 10, 1),
     ],
   },
-  {
-    title: 'Environment',
-    color: '#6cf',
-    params: [
-      cave('waterThreshold', 'Water Threshold', 0, 1, 0.05),
-    ],
-  },
 ];
 
 export function createDebugPanel(): DebugPanel {
@@ -198,6 +205,18 @@ export function createDebugPanel(): DebugPanel {
   _enemyConfig = enemyCfg;
   setBombConfig(bombCfg);
   setHealthConfig(healthCfg);
+
+  const debugEnabled = new URLSearchParams(window.location.search).has('debug');
+
+  // If debug mode is off, return a no-op panel with default configs
+  if (!debugEnabled) {
+    const dummy = document.createElement('div');
+    return {
+      element: dummy,
+      getConfig() { return { ...caveConfig }; },
+      onRestart(_cb) { /* no restart button without debug panel */ },
+    };
+  }
 
   let restartCb: (() => void) | null = null;
 
@@ -312,6 +331,18 @@ export function createDebugPanel(): DebugPanel {
     .debug-btn:hover { filter: brightness(1.2); }
     .debug-btn-restart { background: #2a6; }
     .debug-btn-random { background: #66a; }
+    .debug-btn-copy { background: #a86; }
+    .debug-btn-paste { background: #86a; }
+    @keyframes explode {
+      0% { transform: scale(1); filter: brightness(1); }
+      30% { transform: scale(1.5); filter: brightness(3) hue-rotate(90deg); }
+      60% { transform: scale(2); filter: brightness(5) hue-rotate(180deg); opacity: 0.5; }
+      100% { transform: scale(3); filter: brightness(0); opacity: 0; }
+    }
+    .game-explode {
+      animation: explode 1s ease-out forwards;
+      pointer-events: none;
+    }
   `;
   document.head.appendChild(style);
 
@@ -350,9 +381,10 @@ export function createDebugPanel(): DebugPanel {
     }
   }
 
-  for (const cat of CATEGORIES) {
+  function buildCategory(cat: Category, depth: number): HTMLElement {
     const section = document.createElement('div');
     section.className = 'debug-category';
+    if (depth > 0) section.style.paddingLeft = '8px';
 
     const isCollapsible = !!cat.collapsed;
     const header = document.createElement('div');
@@ -412,17 +444,24 @@ export function createDebugPanel(): DebugPanel {
       inputs[p.key] = { range, val };
     }
 
+    // Render children recursively
+    if (cat.children) {
+      for (const child of cat.children) {
+        body.appendChild(buildCategory(child, depth + 1));
+      }
+    }
+
     section.appendChild(body);
 
     if (!cat.collapsed) {
-      body.style.maxHeight = '500px';
+      body.style.maxHeight = '2000px';
       body.style.opacity = '1';
     }
 
     if (isCollapsible) {
       header.addEventListener('click', () => {
         const isCollapsed = body.classList.contains('collapsed');
-        const toggle = header.querySelector('.debug-toggle')!;
+        const toggle = header.querySelector(':scope > .debug-toggle')!;
         if (isCollapsed) {
           body.classList.remove('collapsed');
           body.style.maxHeight = body.scrollHeight + 'px';
@@ -437,7 +476,11 @@ export function createDebugPanel(): DebugPanel {
       });
     }
 
-    panel.appendChild(section);
+    return section;
+  }
+
+  for (const cat of CATEGORIES) {
+    panel.appendChild(buildCategory(cat, 0));
   }
 
   const btnGroup = document.createElement('div');
@@ -462,6 +505,71 @@ export function createDebugPanel(): DebugPanel {
     if (restartCb) restartCb();
   });
   btnGroup.appendChild(randomizeBtn);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'debug-btn debug-btn-copy';
+  copyBtn.textContent = 'Copy Config';
+  copyBtn.addEventListener('click', () => {
+    const allConfig = {
+      cave: { ...caveConfig },
+      bomb: { ...bombCfg },
+      health: { ...healthCfg },
+      item: { ...itemCfg },
+      enemy: { ...enemyCfg },
+    };
+    navigator.clipboard.writeText(JSON.stringify(allConfig, null, 2));
+  });
+  btnGroup.appendChild(copyBtn);
+
+  const pasteBtn = document.createElement('button');
+  pasteBtn.className = 'debug-btn debug-btn-paste';
+  pasteBtn.textContent = 'Paste Config';
+  pasteBtn.addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text);
+      if (!parsed.cave || !parsed.bomb || !parsed.health || !parsed.item || !parsed.enemy) {
+        throw new Error('Invalid config');
+      }
+      // Apply all configs
+      Object.assign(caveConfig, parsed.cave);
+      Object.assign(bombCfg, parsed.bomb);
+      Object.assign(healthCfg, parsed.health);
+      Object.assign(itemCfg, parsed.item);
+      Object.assign(enemyCfg, parsed.enemy);
+      setBombConfig({ ...bombCfg });
+      setHealthConfig({ ...healthCfg });
+      _itemConfig = { ...itemCfg };
+      _enemyConfig = { ...enemyCfg };
+      // Update all sliders to reflect new values
+      function syncSliders(cats: Category[]) {
+        for (const cat of cats) {
+          for (const p of cat.params) {
+            const inp = inputs[p.key];
+            if (inp) {
+              const v = getVal(p);
+              inp.range.value = String(v);
+              inp.val.textContent = formatVal(v, p.step);
+            }
+          }
+          if (cat.children) syncSliders(cat.children);
+        }
+      }
+      syncSliders(CATEGORIES);
+      if (restartCb) restartCb();
+    } catch {
+      // Invalid config — explode the game window
+      const canvas = document.getElementById('game-canvas');
+      if (canvas) canvas.classList.add('game-explode');
+      const wrapper = document.getElementById('game-wrapper');
+      if (wrapper) wrapper.classList.add('game-explode');
+      setTimeout(() => {
+        if (canvas) canvas.classList.remove('game-explode');
+        if (wrapper) wrapper.classList.remove('game-explode');
+      }, 1200);
+    }
+  });
+  btnGroup.appendChild(pasteBtn);
 
   panel.appendChild(btnGroup);
   document.body.appendChild(panel);

@@ -182,10 +182,12 @@ export function carveExplosion(
   grid: TerrainGrid,
   px: number, py: number,
   radiusPx: number,
+  maxWorldPy = Infinity,
 ): CarveResult {
   const cx = Math.floor(px / CELL_SCALE);
   const cy = Math.floor(py / CELL_SCALE);
   const r = Math.ceil(radiusPx / CELL_SCALE);
+  const maxGy = maxWorldPy < Infinity ? Math.floor(maxWorldPy / CELL_SCALE) : Infinity;
   let count = 0;
 
   for (let dy = -r; dy <= r; dy++) {
@@ -195,6 +197,7 @@ export function carveExplosion(
 
       const worldGx = cx + dx;
       const worldGy = cy + dy;
+      if (worldGy > maxGy) continue;
       if (worldGx < 0 || worldGx >= grid.width) continue;
       const localGy = worldGy - grid.worldYOffset;
       if (localGy < 0 || localGy >= grid.height) continue;

@@ -6,7 +6,7 @@ import { createPlayerRenderer, renderPlayer } from './renderer/playerRenderer';
 import { createParticleSystem, uploadParticleRange, uploadAttractors, updateParticlesGPU, renderParticles, AttractorDef } from './renderer/particleRenderer';
 import { createProjectileRenderer, renderProjectiles } from './renderer/projectileRenderer';
 import { createTerrainRenderer, uploadTerrainGrid, renderTerrain } from './renderer/terrainRenderer';
-import { createTerrainGrid, shiftGridUp, stepAutomata, CELL_SCALE, GRID_H } from './terrain/grid';
+import { createTerrainGrid, shiftGridUp, stepAutomata, CELL_SCALE, GRID_H, TerrainGrid, carveExplosion } from './terrain/grid';
 import { generateRows } from './terrain/generator';
 import { createCavePlan } from './terrain/cavePlan';
 import { createDebugPanel } from './debugPanel';
@@ -25,6 +25,7 @@ import {
   getChargeNormalized,
   fireSpiritBomb, updateProjectiles,
   getSpiritBombRadius, getSpiritBombCenterY,
+  getCraterRadius,
 } from './physics/projectile';
 import { InputState } from './input';
 import { createCamera, addShake, updateShake, updateCameraScroll } from './camera';
@@ -59,6 +60,23 @@ async function main() {
   const hpBar = createHpBar();
   const inventoryUI = createInventoryUI();
   const killCounter = createKillCounter();
+
+  // Pause overlay
+  const pauseOverlay = document.createElement('div');
+  pauseOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:50;pointer-events:none';
+  const pauseText = document.createElement('div');
+  pauseText.style.cssText = 'color:#fff;font-family:monospace;font-size:32px;font-weight:bold;text-shadow:0 0 10px rgba(255,255,255,0.5)';
+  pauseText.textContent = 'PAUSED';
+  pauseOverlay.appendChild(pauseText);
+  const gameWrapper = document.getElementById('game-wrapper');
+  if (gameWrapper) gameWrapper.appendChild(pauseOverlay);
+
+  // Vertex overflow warning
+  const overflowWarn = document.createElement('div');
+  overflowWarn.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);color:#ff4;font-family:monospace;font-size:12px;pointer-events:none;z-index:10;opacity:0;transition:opacity 0.3s';
+  overflowWarn.textContent = 'GPU vertex limit reached — some visuals clipped';
+  const wrapper = document.getElementById('game-wrapper');
+  if (wrapper) wrapper.appendChild(overflowWarn);
 
   // Renderers are GPU resources that persist across restarts
   const terrainRenderData = createTerrainRenderer(gpu);
@@ -99,6 +117,7 @@ async function main() {
     let lastTime = performance.now();
     let gameTime = 0;
     let frameCursorStart = 0;
+    let paused = false;
 
     function tick(input: InputState, dt: number) {
       const prevDead = player.dead;
@@ -130,7 +149,20 @@ async function main() {
         stepAutomata(terrain);
       }
 
-      updateCharge(input, player, charge, projectiles, dt, inventory);
+      updateCharge(input, player, charge, projectiles, dt, inventory, terrain);
+
+      // Wind Ball: damage enemies near charging bomb
+      if (charge.charging && charge.spiritRadius > 0) {
+        const ws = getStacks(inventory, 'wind_ball');
+        if (ws > 0) {
+          const icfg = getItemConfig();
+          const wr = charge.spiritRadius * ws * icfg.windBallModifier;
+          if (wr > 2) {
+            const by = getSpiritBombCenterY(player.y, charge.spiritRadius);
+            damageEnemiesInRadius(enemySys, player.x, by, wr);
+          }
+        }
+      }
 
       if (charge.charging) {
         const norm = getChargeNormalized(charge.chargeTime);
@@ -168,8 +200,23 @@ async function main() {
         damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR);
       }
 
-      // Enemies: damage from active projectiles (spirit bomb body)
-      damageEnemiesWithProjectiles(enemySys, projectiles);
+      // Enemies: flying projectile hits enemy → detonate the bomb
+      for (const proj of projectiles) {
+        if (!proj.alive) continue;
+        const killed = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius);
+        if (killed > 0) {
+          proj.alive = false;
+          const craterR = getCraterRadius(proj);
+          const carve = carveExplosion(terrain, proj.x, proj.y, craterR);
+          emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, proj.power);
+          if (carve.count > 0) {
+            emitTerrainDebris(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, carve.count);
+          }
+          addShake(camera, 4 + proj.power * 12, 0.2 + proj.power * 0.3);
+          // Also kill any other enemies caught in the crater
+          damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR);
+        }
+      }
 
       // Enemy spawning and movement
       spawnEnemies(enemySys, camera.scrollY, gpu.canvas.width, gpu.canvas.height, getEnemyConfig());
@@ -200,9 +247,24 @@ async function main() {
     function loop(now: number) {
       const frameTime = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
-      accumulator += frameTime;
 
       const input = getInput();
+
+      if (input.pausePressed) {
+        paused = !paused;
+        pauseOverlay.style.display = paused ? 'flex' : 'none';
+        clearFrameInput();
+        animFrameId = requestAnimationFrame(loop);
+        return;
+      }
+
+      if (paused) {
+        clearFrameInput();
+        animFrameId = requestAnimationFrame(loop);
+        return;
+      }
+
+      accumulator += frameTime;
       let ticked = false;
       frameCursorStart = cursor.value;
 
@@ -261,7 +323,8 @@ async function main() {
       const spiritR = charge.charging ? charge.spiritRadius : 0;
       const spiritX = player.x;
       const spiritY = spiritR > 0 ? getSpiritBombCenterY(player.y, spiritR) : player.y;
-      renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, charge.density, enemySys.enemies);
+      const vertOverflow = renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, charge.density, enemySys.enemies);
+      overflowWarn.style.opacity = vertOverflow ? '1' : '0';
 
       updateParticleUniforms(gpu.device, particleSys, gpu.canvas.width, gpu.canvas.height, sx, sy);
       renderParticles(pass, particleSys);
@@ -270,7 +333,7 @@ async function main() {
       gpu.device.queue.submit([commandEncoder.finish()]);
 
       // Update HTML overlays
-      hpBar.update(player);
+      hpBar.update(player, sx, sy);
       inventoryUI.update(inventory);
       killCounter.update(enemySys.kills);
 
@@ -284,7 +347,7 @@ async function main() {
   startSession();
 }
 
-function updateCharge(input: InputState, player: Player, charge: ChargeState, projectiles: Projectile[], dt: number, inventory: Inventory) {
+function updateCharge(input: InputState, player: Player, charge: ChargeState, projectiles: Projectile[], dt: number, inventory: Inventory, terrain: TerrainGrid) {
   if (input.charge && !charge.charging) {
     charge.charging = true;
     charge.chargeTime = 0;
@@ -302,6 +365,17 @@ function updateCharge(input: InputState, player: Player, charge: ChargeState, pr
     if (purpleStacks > 0) {
       const itemCfg = getItemConfig();
       charge.density += purpleStacks * itemCfg.purpleBallDensityRate * dt;
+    }
+
+    // Wind Ball: passively destroy terrain around the charging bomb
+    const windStacks = getStacks(inventory, 'wind_ball');
+    if (windStacks > 0) {
+      const itemCfg = getItemConfig();
+      const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
+      const windRadius = charge.spiritRadius * windStacks * itemCfg.windBallModifier;
+      if (windRadius > 2) {
+        carveExplosion(terrain, player.x, bombY, windRadius, player.y);
+      }
     }
 
     // Self-damage when charging past size threshold

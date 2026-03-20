@@ -10,12 +10,12 @@ export interface ItemConfig {
 
 export function createDefaultItemConfig(): ItemConfig {
   return {
-    dropRate: 3,
+    dropRate: 0.375,
     commonChance: 0.4,
     uncommonChance: 0.3,
     rareChance: 0.2,
     legendaryChance: 0.1,
-    purpleBallDensityRate: 1.0,
-    windBallModifier: 0.3,
+    purpleBallDensityRate: 0.25,
+    windBallModifier: 0.1,
   };
 }

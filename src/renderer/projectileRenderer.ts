@@ -11,7 +11,7 @@ interface ProjectileRenderData {
   bindGroup: GPUBindGroup;
 }
 
-const MAX_VERTS = 8192;
+const MAX_VERTS = 16384;
 
 const SHADER_CODE = /* wgsl */`
 struct Uniforms {
@@ -181,15 +181,22 @@ export function renderProjectiles(
     verts.push(ex + 3, ey + 3, wc[0], wc[1], wc[2], wc[3]);
   }
 
-  if (verts.length === 0) return;
+  if (verts.length === 0) return false;
 
-  const vertexData = new Float32Array(verts);
+  // Clamp to buffer capacity (6 floats per vertex)
+  const maxFloats = MAX_VERTS * 6;
+  const overflow = verts.length > maxFloats;
+  const clampedLen = overflow ? maxFloats : verts.length;
+
+  const vertexData = new Float32Array(verts.slice(0, clampedLen));
   device.queue.writeBuffer(data.vertexBuffer, 0, vertexData);
 
   pass.setPipeline(data.pipeline);
   pass.setBindGroup(0, data.bindGroup);
   pass.setVertexBuffer(0, data.vertexBuffer);
-  pass.draw(verts.length / 6);
+  pass.draw(clampedLen / 6);
+
+  return overflow;
 }
 
 function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, time: number, alpha: number, density = 0) {

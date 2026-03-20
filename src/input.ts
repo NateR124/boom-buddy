@@ -7,6 +7,7 @@ export interface InputState {
   charge: boolean;
   chargeReleased: boolean;
   up: boolean;
+  pausePressed: boolean;
 }
 
 const keys = new Set<string>();
@@ -44,8 +45,9 @@ export function getInput(): InputState {
 
   const charge = keys.has('Space');
   const chargeReleased = justReleased.has('Space');
+  const pausePressed = justPressed.has('Escape');
 
-  return { left, right, jump, jumpPressed, jumpReleased, charge, chargeReleased, up };
+  return { left, right, jump, jumpPressed, jumpReleased, charge, chargeReleased, up, pausePressed };
 }
 
 export function clearFrameInput() {
