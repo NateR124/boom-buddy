@@ -9,7 +9,7 @@ export function createDefaultBombConfig(): BombConfig {
   return {
     chargeSpeed: 3000,
     chargeAcceleration: 800,
-    fallSpeed: 200,
+    fallSpeed: 500,
     fallSpeedSizeDebuff: 1.5,
   };
 }

@@ -88,9 +88,8 @@ function rarityToItem(rarity: Rarity): ItemId {
   switch (rarity) {
     case 'common': return 'purple_ball';
     case 'uncommon': return 'wind_ball';
-    case 'rare':
-    case 'legendary':
-      return 'smiley_face';
+    case 'rare': return 'gold_ball';
+    case 'legendary': return 'smiley_face';
   }
 }
 

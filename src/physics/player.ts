@@ -49,6 +49,7 @@ const JUMP_VELOCITY = -540;
 const JUMP_CUT_MULTIPLIER = 0.5; // multiply vy when jump released early
 const COYOTE_TIME = 0.1; // seconds (~6 frames at 60fps)
 const JUMP_BUFFER_TIME = 0.133; // ~8 frames — generous buffer
+const TERMINAL_VELOCITY = 400;
 const RESPAWN_DELAY = 0.5;
 const INVULN_TIME = 1.0;
 
@@ -158,6 +159,7 @@ export function updatePlayer(
     grav *= APEX_GRAVITY_MULT;
   }
   player.vy += grav * dt;
+  if (player.vy > TERMINAL_VELOCITY) player.vy = TERMINAL_VELOCITY;
 
   // Apply velocity
   player.x += player.vx * dt;
@@ -186,9 +188,11 @@ export function updatePlayer(
   if (player.x < -50 || player.x > world.width + 50) {
     killPlayer(player);
   }
-  // Rising ceiling: can't go above the camera
-  if (player.y < cameraScrollY - 60) {
-    killPlayer(player);
+  // Solid ceiling: block player at the top of the camera view
+  const ceilingY = cameraScrollY + player.h / 2;
+  if (player.y < ceilingY) {
+    player.y = ceilingY;
+    if (player.vy < 0) player.vy = 0;
   }
 }
 

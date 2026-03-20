@@ -166,9 +166,10 @@ export function updateProjectiles(
   for (const proj of projectiles) {
     if (!proj.alive) continue;
 
-    // Spirit bombs have gravity
+    // Spirit bombs have gravity — density adds weight
     if (proj.type === 'spirit_bomb') {
-      proj.vy += bombConfig.fallSpeed * dt;
+      const densityBoost = 1 + proj.density * 0.03;
+      proj.vy += bombConfig.fallSpeed * densityBoost * dt;
     }
 
     proj.x += proj.vx * dt;

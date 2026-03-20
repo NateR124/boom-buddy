@@ -95,7 +95,6 @@
     </div>
     <div class="key-row">
       <div class="key-hint" data-key="KeyW">W</div>
-      <div class="key-hint" data-key="KeyS">S</div>
     </div>
     <div class="key-row">
       <div class="key-hint" data-key="KeyD">D</div>
@@ -104,26 +103,32 @@
       <div class="key-hint wide" data-key="Space">SPACE</div>
     </div>
   </div>
+  <div id="esc-hint" style="position:absolute;top:12px;right:12px;pointer-events:none;z-index:10;">
+    <div class="key-hint" data-key="Escape">ESC</div>
+  </div>
   </div>
   <script>
     (function() {
       var hints = document.querySelectorAll('.key-hint');
       var map = {};
       hints.forEach(function(el) { map[el.dataset.key] = el; });
-      var remaining = hints.length;
       window.addEventListener('keydown', function(e) {
         var el = map[e.code];
         if (el && !el.classList.contains('used')) {
           el.classList.add('used');
-          remaining--;
-          if (remaining <= 0) {
-            setTimeout(function() {
-              var container = document.getElementById('key-hints');
-              if (container) container.remove();
-            }, 700);
-          }
         }
       });
+      // Expose a function for the game to call when player drops 100 units
+      window._fadeAllHints = function() {
+        var keyHints = document.getElementById('key-hints');
+        var escHint = document.getElementById('esc-hint');
+        if (keyHints) { keyHints.style.transition = 'opacity 0.6s'; keyHints.style.opacity = '0'; }
+        if (escHint) { escHint.style.transition = 'opacity 0.6s'; escHint.style.opacity = '0'; }
+        setTimeout(function() {
+          if (keyHints) keyHints.remove();
+          if (escHint) escHint.remove();
+        }, 700);
+      };
     })();
   </script>
   <script type="module" src="/src/main.ts"></script>

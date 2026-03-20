@@ -97,6 +97,8 @@ async function main() {
     const projectiles: Projectile[] = [];
     const camera = createCamera();
     const enemySys = createEnemySystem();
+    const startY = player.y;
+    let hintsFaded = false;
 
     const terrain = createTerrainGrid();
     const cavePlan = createCavePlan(config);
@@ -131,6 +133,12 @@ async function main() {
       }
 
       if (player.dead) return;
+
+      // Fade key hints after dropping 100 pixels
+      if (!hintsFaded && player.y - startY > 100) {
+        hintsFaded = true;
+        (window as any)._fadeAllHints?.();
+      }
 
       updateCameraScroll(camera, player.y, gpu.canvas.height, dt);
 
@@ -231,6 +239,25 @@ async function main() {
       cleanupEnemies(enemySys, camera.scrollY, gpu.canvas.height);
 
       updateShake(camera, dt);
+
+      // Gold Ball magnetism: pull nearby items toward the player
+      const goldStacks = getStacks(inventory, 'gold_ball');
+      if (goldStacks > 0) {
+        const icfg = getItemConfig();
+        const magRadius = icfg.goldBallRadius * goldStacks;
+        const magSpeed = icfg.goldBallSpeed * goldStacks;
+        for (const wi of itemSpawner.items) {
+          if (!wi.alive) continue;
+          const dx = player.x - wi.x;
+          const dy = player.y - wi.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < magRadius && dist > 1) {
+            const pull = magSpeed * dt / dist;
+            wi.x += dx * pull;
+            wi.y += dy * pull;
+          }
+        }
+      }
 
       // Item collection
       const collected = collectItems(itemSpawner, player.x, player.y, player.w, player.h);

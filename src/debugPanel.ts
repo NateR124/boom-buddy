@@ -177,6 +177,8 @@ const CATEGORIES: Category[] = [
       item('legendaryChance', 'Legendary %', 0, 1, 0.05),
       item('purpleBallDensityRate', 'Purple Density/s', 0, 5, 0.1),
       item('windBallModifier', 'Wind Modifier', 0, 2, 0.05),
+      item('goldBallRadius', 'Gold Radius/stack', 5, 200, 5),
+      item('goldBallSpeed', 'Gold Pull Speed/stack', 5, 200, 5),
     ],
   },
   {
