@@ -61,7 +61,9 @@ export function spawnEnemies(
 
     if (Math.random() > chance) continue;
 
-    const count = config.minPerSpawn + Math.floor(Math.random() * (config.maxPerSpawn - config.minPerSpawn + 1));
+    const depthLevel = Math.max(0, scrollY / 540);
+    const maxSpawn = config.maxPerSpawn + Math.floor(depthLevel * config.spawnBonusPerDepth);
+    const count = config.minPerSpawn + Math.floor(Math.random() * (maxSpawn - config.minPerSpawn + 1));
     const hp = getEnemyHp(scrollY, config);
 
     for (let i = 0; i < count; i++) {
@@ -102,8 +104,10 @@ export function updateEnemies(
     // Move toward player (reduced if being knocked back)
     const knockSpeed = Math.sqrt(e.vx * e.vx + e.vy * e.vy);
     const chaseMult = Math.max(0, 1 - knockSpeed / 200);
-    e.x += (dx / dist) * config.batSpeed * chaseMult * dt;
-    e.y += (dy / dist) * config.batSpeed * chaseMult * dt;
+    const depthSpd = Math.max(0, e.y / 540);
+    const speed = config.batSpeed + depthSpd * config.batSpeedPerDepth;
+    e.x += (dx / dist) * speed * chaseMult * dt;
+    e.y += (dy / dist) * speed * chaseMult * dt;
   }
 
   // Age damage numbers and remove expired

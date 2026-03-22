@@ -1,13 +1,21 @@
 import { Player } from './physics/player';
 import { TerrainGrid, CELL_SCALE, getCell, setCell, Material } from './terrain/grid';
 
-export const DIG_INTERVAL = 0.12; // seconds between each cell carved (slower than falling)
+const BASE_DIG_INTERVAL = 0.12; // seconds between each cell carved (slower than falling)
 const DIG_REACH = 6;              // pixels past player edge
 
-/** Carve a player-sized rectangle in the aim direction */
+/** Get dig interval — glow stacks very slightly speed it up */
+export function getDigInterval(glowStacks: number): number {
+  // At 25 glow stacks, interval halves (0.12 → 0.06)
+  return BASE_DIG_INTERVAL / (1 + glowStacks * 0.04);
+}
+
+/** Carve a player-sized rectangle in the aim direction.
+ *  glowStacks slightly increase the reach. */
 export function carveDigArea(
   player: Player, terrain: TerrainGrid,
   dx: number, dy: number,
+  glowStacks = 0,
 ) {
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.01) return;
@@ -16,11 +24,13 @@ export function carveDigArea(
   const px = -ndy;
   const py = ndx;
 
-  const halfLen = player.h / 2 + CELL_SCALE;
+  // Glow stacks very slightly increase dig area — 25 stacks doubles size
+  const glowScale = 1 + glowStacks * 0.04;
+  const halfLen = (player.h / 2 + CELL_SCALE) * glowScale;
   const halfW = player.w / 2;
   const halfH = player.h / 2;
   const edgeDist = Math.abs(ndx) * halfW + Math.abs(ndy) * halfH;
-  const depth = edgeDist + DIG_REACH;
+  const depth = (edgeDist + DIG_REACH) * glowScale;
   const cx = player.x + ndx * (depth / 2);
   const cy = player.y + ndy * (depth / 2) - CELL_SCALE * 2;
 

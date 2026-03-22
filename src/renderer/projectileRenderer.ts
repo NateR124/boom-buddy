@@ -267,18 +267,24 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
   const pulse = 1 + Math.sin(time * 8) * 0.08;
   const r = radius * pulse;
 
-  // Purple overcharge shifts the bomb from orange → dark purple with white outlines
-  const d = Math.min(purpleOvercharge, 1);
+  // Tier progression: 0–1 = purple, 1–2 = lightning, 2–3 = rings, 3–4 = void, 4–5 = corona
+  const tier1 = Math.min(purpleOvercharge, 1);       // purple shift
+  const tier2 = Math.max(0, Math.min(purpleOvercharge - 1, 1)); // lightning
+  const tier3 = Math.max(0, Math.min(purpleOvercharge - 2, 1)); // rings
+  const tier4 = Math.max(0, Math.min(purpleOvercharge - 3, 1)); // void core
+  const tier5 = Math.max(0, Math.min(purpleOvercharge - 4, 1)); // corona
 
-  // Glow scale: 0 stacks = tight/small glow, scales up with stacks
-  // g goes from 0.4 (tight) to 1.0 (full) over ~10 stacks
+  const d = tier1; // purple amount
+
+  // Glow scale
   const g = 0.4 + 0.6 * Math.min(glowStacks / 10, 1);
 
-  // Bloom halo — scales with glow
+  // === BASE BOMB ===
+  // Bloom halo
   drawCircle(verts, x, y, r * (1.2 + g * 0.8), 20, [
     1.0 - d * 0.5, 0.4 - d * 0.3, 0.05 + d * 0.5, 0.08 * g * alpha,
   ]);
-  // Outer glow — scales with glow
+  // Outer glow
   drawCircle(verts, x, y, r * (0.9 + g * 0.5), 16, [
     0.7 + d * 0.3, 0.5 - d * 0.4, 0.1 + d * 0.7, 0.25 * g * alpha,
   ]);
@@ -290,12 +296,121 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
   drawCircle(verts, x, y, r * 0.65, 12, [
     1.0, 0.9 - d * 0.3, 0.5 + d * 0.5, 0.7 * alpha,
   ]);
-  // Core — stays hot white
+  // Core
   drawCircle(verts, x, y, r * 0.35, 10, [1.0, 0.97, 0.9, 0.95 * alpha]);
 
-  // White outline ring at high purple overcharge
+  // White outline ring (tier 1)
   if (d > 0.1) {
     drawRing(verts, x, y, r * 0.95, r * 1.05, 20, [1.0, 1.0, 1.0, d * 0.4 * alpha]);
+  }
+
+  // === TIER 2: LIGHTNING ARCS ===
+  if (tier2 > 0) {
+    const numBolts = 3 + Math.floor(tier2 * 4);
+    for (let i = 0; i < numBolts; i++) {
+      const baseAngle = (i / numBolts) * Math.PI * 2 + time * 6;
+      const flickerSpeed = 15 + i * 7;
+      const flicker = Math.sin(time * flickerSpeed + i * 31) * 0.5 + 0.5;
+      if (flicker < 0.3) continue; // bolts flicker in and out
+
+      const innerR = r * 0.6;
+      const outerR = r * (1.0 + tier2 * 0.3);
+      const jag1 = Math.sin(time * 20 + i * 17) * 0.3;
+      const jag2 = Math.sin(time * 25 + i * 23) * 0.2;
+
+      const x0 = x + Math.cos(baseAngle) * innerR;
+      const y0 = y + Math.sin(baseAngle) * innerR;
+      const midAngle = baseAngle + jag1;
+      const midR = (innerR + outerR) / 2;
+      const x1 = x + Math.cos(midAngle) * midR;
+      const y1 = y + Math.sin(midAngle) * midR;
+      const endAngle = baseAngle + jag2;
+      const x2 = x + Math.cos(endAngle) * outerR;
+      const y2 = y + Math.sin(endAngle) * outerR;
+
+      const boltAlpha = tier2 * flicker * 0.8 * alpha;
+      const boltColor: [number, number, number, number] = [0.7, 0.7, 1.0, boltAlpha];
+      // Draw as thin triangles (2 segments)
+      const t1 = 1.2;
+      verts.push(x0 - t1, y0, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      verts.push(x0 + t1, y0, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      verts.push(x1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      verts.push(x1 - t1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      verts.push(x1 + t1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      verts.push(x2, y2, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+    }
+  }
+
+  // === TIER 3: ORBITING RINGS ===
+  if (tier3 > 0) {
+    const ringCount = 1 + Math.floor(tier3);
+    for (let ri = 0; ri < ringCount; ri++) {
+      const ringAngle = time * (2.5 + ri * 1.5) + ri * Math.PI;
+      const tilt = 0.3 + ri * 0.4;
+      const ringR = r * (1.1 + tier3 * 0.15);
+      const segs = 20;
+      const ringAlpha = tier3 * 0.5 * alpha;
+      for (let i = 0; i < segs; i++) {
+        const a1 = (i / segs) * Math.PI * 2;
+        const a2 = ((i + 1) / segs) * Math.PI * 2;
+        // Elliptical ring with tilt
+        const rx1 = x + Math.cos(a1 + ringAngle) * ringR;
+        const ry1 = y + Math.sin(a1 + ringAngle) * ringR * tilt;
+        const rx2 = x + Math.cos(a2 + ringAngle) * ringR;
+        const ry2 = y + Math.sin(a2 + ringAngle) * ringR * tilt;
+        const rc: [number, number, number, number] = [0.8, 0.5, 1.0, ringAlpha];
+        verts.push(rx1, ry1, rc[0], rc[1], rc[2], rc[3]);
+        verts.push(rx2, ry2, rc[0], rc[1], rc[2], rc[3]);
+        verts.push(x, y, rc[0], rc[1], rc[2], 0); // transparent center for thin ring illusion
+      }
+    }
+  }
+
+  // === TIER 4: EVENT HORIZON ===
+  if (tier4 > 0) {
+    // Bright churning ring around the core — "event horizon" glow
+    const horizonR = r * (0.3 + tier4 * 0.15);
+    const horizonThick = 2 + tier4 * 2;
+    drawRing(verts, x, y, horizonR - horizonThick / 2, horizonR + horizonThick / 2, 18,
+      [0.9, 0.5, 1.0, tier4 * 0.6 * alpha]);
+    // Bright dots rapidly orbiting the horizon
+    const numDots = 6 + Math.floor(tier4 * 6);
+    for (let i = 0; i < numDots; i++) {
+      const da = (i / numDots) * Math.PI * 2 + time * (10 + i * 2);
+      const wobble = Math.sin(time * 15 + i * 7) * 3;
+      const dr = horizonR + wobble;
+      const dotSize = 1.0 + tier4 * 0.5;
+      drawCircle(verts, x + Math.cos(da) * dr, y + Math.sin(da) * dr,
+        dotSize, 5, [1.0, 0.9, 1.0, tier4 * 0.7 * alpha]);
+    }
+    // Outer pulsing halo
+    const haloPulse = 0.5 + 0.5 * Math.sin(time * 6);
+    drawRing(verts, x, y, r * 1.05, r * 1.05 + 1.5, 16,
+      [0.7, 0.3, 0.9, tier4 * haloPulse * 0.3 * alpha]);
+  }
+
+  // === TIER 5: CORONA / RADIATING SPIKES ===
+  if (tier5 > 0) {
+    const numRays = 8 + Math.floor(tier5 * 8);
+    const rayLength = r * (0.5 + tier5 * 0.8);
+    for (let i = 0; i < numRays; i++) {
+      const angle = (i / numRays) * Math.PI * 2 + time * 3;
+      const rayPulse = 0.5 + 0.5 * Math.sin(time * 10 + i * 4);
+      const len = rayLength * (0.6 + rayPulse * 0.4);
+      const baseR = r * 0.9;
+      const tipX = x + Math.cos(angle) * (baseR + len);
+      const tipY = y + Math.sin(angle) * (baseR + len);
+      const perpX = -Math.sin(angle) * 2.5;
+      const perpY = Math.cos(angle) * 2.5;
+      const bx = x + Math.cos(angle) * baseR;
+      const by = y + Math.sin(angle) * baseR;
+      const rayAlpha = tier5 * rayPulse * 0.6 * alpha;
+      const rc: [number, number, number, number] = [1.0, 0.85, 0.4, rayAlpha];
+      // Triangle spike
+      verts.push(bx + perpX, by + perpY, rc[0], rc[1], rc[2], rc[3]);
+      verts.push(bx - perpX, by - perpY, rc[0], rc[1], rc[2], rc[3]);
+      verts.push(tipX, tipY, rc[0], rc[1], rc[2], rc[3] * 0.3);
+    }
   }
 }
 

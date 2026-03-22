@@ -17,6 +17,7 @@ export interface DebugPanel {
   element: HTMLElement;
   getConfig(): CaveConfig;
   onRestart(cb: () => void): void;
+  onItemChange(cb: (itemId: string, delta: number) => void): void;
 }
 
 interface ParamDef {
@@ -193,8 +194,10 @@ const CATEGORIES: Category[] = [
       enemy('minPerSpawn', 'Min Per Spawn', 0, 5, 1),
       enemy('maxPerSpawn', 'Max Per Spawn', 1, 10, 1),
       enemy('batSpeed', 'Bat Speed', 10, 200, 5),
+      enemy('batSpeedPerDepth', 'Speed/Depth', 0, 10, 0.5),
       enemy('batBaseHp', 'Bat Base HP', 1, 50, 1),
-      enemy('batHpPerDepth', 'HP Per Depth', 0, 5, 0.1),
+      enemy('batHpPerDepth', 'HP/Depth', 0, 5, 0.1),
+      enemy('spawnBonusPerDepth', 'Spawn+/Depth', 0, 1, 0.05),
     ],
   },
 ];
@@ -219,10 +222,12 @@ export function createDebugPanel(): DebugPanel {
       element: dummy,
       getConfig() { return { ...caveConfig }; },
       onRestart(_cb) { /* no restart button without debug panel */ },
+      onItemChange(_cb) {},
     };
   }
 
   let restartCb: (() => void) | null = null;
+  let itemChangeCb: ((itemId: string, delta: number) => void) | null = null;
 
   const panel = document.createElement('div');
   panel.id = 'debug-panel';
@@ -337,6 +342,34 @@ export function createDebugPanel(): DebugPanel {
     .debug-btn-random { background: #66a; }
     .debug-btn-copy { background: #a86; }
     .debug-btn-paste { background: #86a; }
+    .debug-item-section {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #333;
+    }
+    .debug-item-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+    .debug-item-name {
+      flex: 1;
+      font-size: 10px;
+      color: #aaa;
+    }
+    .debug-item-btn {
+      padding: 2px 5px;
+      font-size: 9px;
+      font-family: monospace;
+      border: 1px solid #555;
+      border-radius: 2px;
+      background: #333;
+      color: #ddd;
+      cursor: pointer;
+    }
+    .debug-item-btn:hover { background: #555; }
+    .debug-item-btn.zero { background: #633; border-color: #855; }
     @keyframes explode {
       0% { transform: scale(1); filter: brightness(1); }
       30% { transform: scale(1.5); filter: brightness(3) hue-rotate(90deg); }
@@ -576,12 +609,57 @@ export function createDebugPanel(): DebugPanel {
   btnGroup.appendChild(pasteBtn);
 
   panel.appendChild(btnGroup);
+
+  // Item charges section
+  const itemSection = document.createElement('div');
+  itemSection.className = 'debug-item-section';
+  const itemTitle = document.createElement('div');
+  itemTitle.className = 'debug-category-header';
+  itemTitle.style.color = '#8cf';
+  itemTitle.textContent = 'ITEM CHARGES';
+  itemSection.appendChild(itemTitle);
+
+  const itemDefs: { id: string; name: string; color: string }[] = [
+    { id: 'purple_ball', name: 'Purple', color: '#a040ff' },
+    { id: 'wind_ball', name: 'Glow', color: '#ff8c00' },
+    { id: 'white_ball', name: 'Wind', color: '#ffffff' },
+    { id: 'gold_ball', name: 'Gold', color: '#ffd700' },
+  ];
+
+  for (const item of itemDefs) {
+    const row = document.createElement('div');
+    row.className = 'debug-item-row';
+    const name = document.createElement('span');
+    name.className = 'debug-item-name';
+    name.style.color = item.color;
+    name.textContent = item.name;
+    row.appendChild(name);
+
+    for (const delta of [1, 5, 10]) {
+      const btn = document.createElement('button');
+      btn.className = 'debug-item-btn';
+      btn.textContent = '+' + delta;
+      btn.addEventListener('click', () => { if (itemChangeCb) itemChangeCb(item.id, delta); });
+      row.appendChild(btn);
+    }
+
+    const zeroBtn = document.createElement('button');
+    zeroBtn.className = 'debug-item-btn zero';
+    zeroBtn.textContent = '0';
+    zeroBtn.addEventListener('click', () => { if (itemChangeCb) itemChangeCb(item.id, -Infinity); });
+    row.appendChild(zeroBtn);
+
+    itemSection.appendChild(row);
+  }
+
+  panel.appendChild(itemSection);
   document.body.appendChild(panel);
 
   return {
     element: panel,
     getConfig() { return { ...caveConfig }; },
     onRestart(cb) { restartCb = cb; },
+    onItemChange(cb) { itemChangeCb = cb; },
   };
 }
 

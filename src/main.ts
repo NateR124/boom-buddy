@@ -10,7 +10,7 @@ import { createTerrainGrid, shiftGridUp, stepAutomata, CELL_SCALE, GRID_H, Terra
 import { generateRows } from './terrain/generator';
 import { createCavePlan } from './terrain/cavePlan';
 import { createDebugPanel } from './debugPanel';
-import { carveDigArea, DIG_INTERVAL } from './dig';
+import { carveDigArea, getDigInterval } from './dig';
 import { createHpBar } from './hpBar';
 import { createKillCounter } from './killCounter';
 import { damagePlayer, getHealthConfig } from './physics/player';
@@ -118,6 +118,17 @@ async function main() {
 
     const itemSpawner = createItemSpawner();
     const inventory = createInventory();
+
+    // Wire debug panel item charge buttons to inventory
+    debugPanel.onItemChange((itemId, delta) => {
+      if (delta === -Infinity) {
+        inventory.stacks.set(itemId as any, 0);
+      } else {
+        const current = inventory.stacks.get(itemId as any) || 0;
+        inventory.stacks.set(itemId as any, Math.max(0, current + delta));
+      }
+    });
+
     // Spawn initial items
     spawnItemsForRows(itemSpawner, 80, GRID_H, cavePlan, getItemConfig(), config.seed);
 
@@ -184,10 +195,12 @@ async function main() {
 
       // Passive dig: charging bomb slowly carves terrain in aim direction
       if (charge.charging) {
+        const glowStacks = getStacks(inventory, 'wind_ball');
+        const digInt = getDigInterval(glowStacks);
         digTimer += dt;
-        if (digTimer >= DIG_INTERVAL) {
-          digTimer -= DIG_INTERVAL;
-          carveDigArea(player, terrain, aimDirX, aimDirY);
+        if (digTimer >= digInt) {
+          digTimer -= digInt;
+          carveDigArea(player, terrain, aimDirX, aimDirY, glowStacks);
         }
       } else {
         digTimer = 0;
@@ -228,13 +241,14 @@ async function main() {
 
       // Wind stacks boost blast force, radius, and knockback
       const windStacks = getStacks(inventory, 'white_ball');
-      const windMult = 0.3 + windStacks * 0.3;
+      const windMult = 0.3 + windStacks * 0.01;
 
       // Helper: apply explosion knockback to player + enemies
       function blastAll(ex: number, ey: number, power: number, radius: number) {
         // Blast radius has a generous minimum so player always feels it nearby
         const blastRadius = Math.max(radius * 3, radius * 2 * windMult);
-        const baseForce = (1500 + power * 1500) * windMult;
+        // Power uses sqrt so big bombs don't blast disproportionately harder
+        const baseForce = (1500 + Math.sqrt(power) * 500) * windMult;
 
         // Player knockback
         const pdx = player.x - ex;
@@ -485,9 +499,10 @@ function updateCharge(input: InputState, player: Player, charge: ChargeState, pr
     }
   }
 
-  // Continue charging
+  // Continue charging — purple stacks slightly boost charge rate
+  const chargeRate = 1 + purpleStacks * 0.015;
   if (charge.charging) {
-    charge.chargeTime += dt;
+    charge.chargeTime += dt * chargeRate;
     // Cap charge time at max (vanilla + purple bonus)
     if (charge.chargeTime > maxCharge) {
       charge.chargeTime = maxCharge;

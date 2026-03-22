@@ -4,9 +4,11 @@ export interface EnemyConfig {
   depthChanceBonus: number; // additional chance per 1000px depth
   minPerSpawn: number;      // minimum enemies per successful spawn
   maxPerSpawn: number;      // maximum enemies per successful spawn
-  batSpeed: number;         // pixels per second
+  batSpeed: number;         // base pixels per second
+  batSpeedPerDepth: number;  // extra speed per depth level
   batBaseHp: number;         // base hit points at surface
   batHpPerDepth: number;     // extra HP per depth level
+  spawnBonusPerDepth: number; // extra max spawn count per depth level
 }
 
 export function createDefaultEnemyConfig(): EnemyConfig {
@@ -17,7 +19,9 @@ export function createDefaultEnemyConfig(): EnemyConfig {
     minPerSpawn: 1,
     maxPerSpawn: 3,
     batSpeed: 40,
+    batSpeedPerDepth: 1,
     batBaseHp: 5,
     batHpPerDepth: 0.5,
+    spawnBonusPerDepth: 0.1,
   };
 }

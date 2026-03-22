@@ -54,18 +54,17 @@ export function getMaxChargeTime(purpleStacks: number, bonusPerStack: number): n
   return BASE_MAX_CHARGE + purpleStacks * bonusPerStack;
 }
 
-/** Purple visual: 0 at vanilla max or below, ramps to 1.0 over the next 30 bonus units of charge.
- *  Each purple ball adds `bonusPerStack` to max charge. The visual shift spans
- *  from X+1 bonus (first hint of purple) to X+30 bonus (fully purple). */
-const PURPLE_VISUAL_SPAN = 30; // number of bonus charge units to reach full purple
+/** Returns overcharge level 0–5 (each tier = 10 purple stacks worth of charge past vanilla max).
+ *  Tier 0 = at or below vanilla. Tier 1 = purple (0–1). Tier 2 = lightning. Tier 3 = rings.
+ *  Tier 4 = void core. Tier 5 = corona. Fractional values represent progress within a tier. */
+const STACKS_PER_TIER = 10;
 
 export function getPurpleOvercharge(chargeTime: number, _purpleStacks: number, bonusPerStack: number): number {
   if (chargeTime <= BASE_MAX_CHARGE) return 0;
-  const overTime = chargeTime - BASE_MAX_CHARGE; // how far past vanilla max
-  // Each purple ball adds bonusPerStack seconds. Full purple at 30 * bonusPerStack above vanilla.
-  const fullPurpleTime = PURPLE_VISUAL_SPAN * bonusPerStack;
-  if (fullPurpleTime <= 0) return 0;
-  return Math.min(overTime / fullPurpleTime, 1);
+  const overTime = chargeTime - BASE_MAX_CHARGE;
+  const tierDuration = STACKS_PER_TIER * bonusPerStack;
+  if (tierDuration <= 0) return 0;
+  return Math.min(overTime / tierDuration, 5);
 }
 
 /**
@@ -194,7 +193,7 @@ export function fireSpiritBomb(
 
 export function getCraterRadius(proj: Projectile): number {
   if (proj.type === 'spirit_bomb') {
-    return proj.radius * 2.25;
+    return proj.radius * 2.25 + proj.radius * proj.power * 0.5;
   }
   return 8 + proj.power * 24;
 }

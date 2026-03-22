@@ -67,16 +67,16 @@ export const BIOMES: BiomeColors[] = [
 /** Get blended biome colors for a given depth level.
  *  First 50 of every 100 = solid, next 50 = blend to next. */
 export function getBiomeColors(depth: number): BiomeColors {
-  const biomeIndex = Math.floor(depth / 100) % BIOMES.length;
+  const biomeIndex = Math.floor(depth / 25) % BIOMES.length;
   const nextIndex = (biomeIndex + 1) % BIOMES.length;
-  const withinBiome = depth % 100;
+  const withinBiome = depth % 25;
 
-  if (withinBiome < 50) {
+  if (withinBiome < 12) {
     return BIOMES[biomeIndex];
   }
 
-  // Blend from current to next over depth 50–99
-  const t = (withinBiome - 50) / 50;
+  // Blend from current to next over depth 12–24
+  const t = (withinBiome - 12) / 13;
   const a = BIOMES[biomeIndex];
   const b = BIOMES[nextIndex];
   return {
