@@ -8,6 +8,8 @@ export interface InputState {
   down: boolean;
   pausePressed: boolean;
   clickPressed: boolean;  // true only on the frame mouse was clicked
+  mouseHeld: boolean;     // true while mouse button is held
+  mouseReleased: boolean; // true only on the frame mouse was released
   mouseX: number;         // mouse position in canvas pixels
   mouseY: number;
 }
@@ -18,6 +20,7 @@ const justReleased = new Set<string>();
 
 let mouseDown = false;
 let mouseClicked = false;  // one-frame flag
+let mouseReleased = false; // one-frame flag
 let mouseX = 0;
 let mouseY = 0;
 let canvasRef: HTMLCanvasElement | null = null;
@@ -52,6 +55,7 @@ export function initInput(canvas?: HTMLCanvasElement) {
   window.addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       mouseDown = false;
+      mouseReleased = true;
     }
   });
 
@@ -86,12 +90,15 @@ export function getInput(): InputState {
 
   const pausePressed = justPressed.has('Escape');
   const clickPressed = mouseClicked;
+  const held = mouseDown;
+  const released = mouseReleased;
 
-  return { left, right, jump, jumpPressed, jumpReleased, up, down, pausePressed, clickPressed, mouseX, mouseY };
+  return { left, right, jump, jumpPressed, jumpReleased, up, down, pausePressed, clickPressed, mouseHeld: held, mouseReleased: released, mouseX, mouseY };
 }
 
 export function clearFrameInput() {
   justPressed.clear();
   justReleased.clear();
   mouseClicked = false;
+  mouseReleased = false;
 }

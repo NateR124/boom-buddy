@@ -17,6 +17,7 @@ export interface DamageNumber {
   y: number;
   amount: number;
   age: number; // seconds since created
+  color: string; // CSS color for the number
 }
 
 const DAMAGE_NUMBER_LIFETIME = 0.8; // seconds before fade-out complete
@@ -119,7 +120,7 @@ export function updateEnemies(
   }
 }
 
-function applyDamage(sys: EnemySystem, e: Enemy, damage: number): boolean {
+function applyDamage(sys: EnemySystem, e: Enemy, damage: number, color = '#ff4444'): boolean {
   e.hp -= damage;
   // Spawn damage number
   sys.damageNumbers.push({
@@ -127,6 +128,7 @@ function applyDamage(sys: EnemySystem, e: Enemy, damage: number): boolean {
     y: e.y - 8,
     amount: damage,
     age: 0,
+    color,
   });
   if (e.hp <= 0) {
     e.alive = false;
@@ -143,8 +145,9 @@ export function checkEnemyPlayerCollision(
   sys: EnemySystem,
   px: number, py: number,
   pw: number, ph: number,
-): number {
+): { hits: number; killedPositions: { x: number; y: number }[] } {
   let hits = 0;
+  const killedPositions: { x: number; y: number }[] = [];
   const halfW = pw / 2;
   const halfH = ph / 2;
 
@@ -156,12 +159,13 @@ export function checkEnemyPlayerCollision(
       e.y > py - halfH - 16 &&
       e.y < py + halfH + 16
     ) {
+      killedPositions.push({ x: e.x, y: e.y });
       e.alive = false;
       sys.kills++;
       hits++;
     }
   }
-  return hits;
+  return { hits, killedPositions };
 }
 
 /**
@@ -172,21 +176,24 @@ export function damageEnemiesInRadius(
   cx: number, cy: number,
   radius: number,
   damage = 1,
-): { hit: number; killed: number } {
+  color = '#ff4444',
+): { hit: number; killed: number; killedPositions: { x: number; y: number }[] } {
   let hit = 0;
   let killed = 0;
+  const killedPositions: { x: number; y: number }[] = [];
   for (const e of sys.enemies) {
     if (!e.alive) continue;
     const dx = e.x - cx;
     const dy = e.y - cy;
     if (dx * dx + dy * dy < radius * radius) {
       hit++;
-      if (applyDamage(sys, e, damage)) {
+      if (applyDamage(sys, e, damage, color)) {
         killed++;
+        killedPositions.push({ x: e.x, y: e.y });
       }
     }
   }
-  return { hit, killed };
+  return { hit, killed, killedPositions };
 }
 
 /**
@@ -243,11 +250,12 @@ export function cleanupEnemies(sys: EnemySystem, scrollY: number, canvasHeight: 
 }
 
 /** Get damage number rendering data */
-export function getDamageNumberRenderData(sys: EnemySystem): { x: number; y: number; amount: number; alpha: number }[] {
+export function getDamageNumberRenderData(sys: EnemySystem): { x: number; y: number; amount: number; alpha: number; color: string }[] {
   return sys.damageNumbers.map(dn => ({
     x: dn.x,
     y: dn.y - (dn.age / DAMAGE_NUMBER_LIFETIME) * DAMAGE_NUMBER_RISE,
     amount: dn.amount,
     alpha: 1 - dn.age / DAMAGE_NUMBER_LIFETIME,
+    color: dn.color,
   }));
 }

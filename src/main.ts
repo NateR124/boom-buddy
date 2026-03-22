@@ -12,9 +12,9 @@ import { createCavePlan } from './terrain/cavePlan';
 import { createDebugPanel } from './debugPanel';
 import { carveDigArea, getDigInterval } from './dig';
 import { createHpBar } from './hpBar';
-import { createKillCounter } from './killCounter';
+import { createHudState, createHudUI, createOneUpPopup, checkKillMilestone, HudState } from './hud';
 import { damagePlayer, getHealthConfig } from './physics/player';
-import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems } from './items/itemSpawner';
+import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems, trySpawnDrop } from './items/itemSpawner';
 import { createInventory, addItem, getStacks, createInventoryUI, Inventory } from './items/inventory';
 import { getItemConfig, getEnemyConfig } from './debugPanel';
 import {
@@ -37,7 +37,21 @@ import {
 } from './enemies/enemySystem';
 import { CANVAS_W, CANVAS_H } from './gameConfig';
 import { createDepthCounter } from './depthCounter';
+// HUD is imported above (hud.ts)
 import { getBiomeColors } from './biomeColors';
+import {
+  createWinState, checkWinTrigger, updateWinSequence,
+  createWinOverlay,
+} from './winSequence';
+
+/** Get damage number color based on projectile overcharge (0=orange, 5=deep purple) */
+function getBombDmgColor(overcharge: number): string {
+  const t = Math.min(overcharge / 5, 1);
+  const r = Math.round(255 * (1 - t * 0.37));       // 255 → 160
+  const g = Math.round(140 * (1 - t));               // 140 → 0
+  const b = Math.round(50 + t * 205);                // 50 → 255
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
 
 const FIXED_DT = 1 / 60;
 const MAX_PARTICLES = 4096;
@@ -65,15 +79,80 @@ async function main() {
   const debugPanel = createDebugPanel();
   const hpBar = createHpBar();
   const inventoryUI = createInventoryUI();
-  const killCounter = createKillCounter();
+  const hudUI = createHudUI();
+  const oneUpPopup = createOneUpPopup();
 
   // Pause overlay
   const pauseOverlay = document.createElement('div');
-  pauseOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:50;pointer-events:none';
-  const pauseText = document.createElement('div');
-  pauseText.style.cssText = 'color:#fff;font-family:monospace;font-size:32px;font-weight:bold;text-shadow:0 0 10px rgba(255,255,255,0.5)';
-  pauseText.textContent = 'PAUSED';
-  pauseOverlay.appendChild(pauseText);
+  pauseOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50';
+
+  const pauseStyle = document.createElement('style');
+  pauseStyle.textContent = `
+    .pause-title { color:#fff;font-family:monospace;font-size:32px;font-weight:bold;text-shadow:0 0 10px rgba(255,255,255,0.5);margin-bottom:36px }
+    .orb-row { display:flex;gap:6px;margin-bottom:24px }
+    .orb-slot { display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;border-radius:6px;cursor:pointer;pointer-events:auto;transition:background 0.15s,box-shadow 0.15s }
+    .orb-slot:hover { background:rgba(255,255,255,0.08) }
+    .orb-slot.selected { background:rgba(255,255,255,0.12);box-shadow:0 0 12px rgba(255,255,255,0.2) }
+    .orb-icon { font-size:22px;line-height:1 }
+    .orb-label { font-family:monospace;font-size:10px;color:#999;white-space:nowrap }
+    .orb-detail { display:flex;align-items:center;gap:14px;font-family:monospace;width:280px;min-height:60px }
+    .orb-detail-icon { font-size:36px;flex-shrink:0;width:36px;text-align:center }
+    .orb-detail-text { font-size:13px;color:#ccc;line-height:1.5;text-align:left }
+  `;
+  document.head.appendChild(pauseStyle);
+
+  interface OrbInfo {
+    symbol: string;
+    color: string;
+    glow: string;
+    shortLabel: string;
+    longDesc: string; // HTML
+    highlightColor: string;
+  }
+  const orbs: OrbInfo[] = [
+    { symbol: '\u25CF', color: '#a040ff', glow: 'rgba(160,64,255,0.6)', shortLabel: '++Charge', longDesc: 'Increase <hl>max charge</hl> and slightly increases <hl>charge rate</hl>', highlightColor: '#c880ff' },
+    { symbol: '\u25CE', color: '#ff8c00', glow: 'rgba(255,140,0,0.6)', shortLabel: '+Passive', longDesc: 'Increases <hl>passive damage while charging</hl> to enemies and terrain', highlightColor: '#ffb840' },
+    { symbol: '\u25CB', color: '#ffffff', glow: 'rgba(255,255,255,0.6)', shortLabel: '+Knockback', longDesc: 'Increases <hl>knockback</hl> on yourself and enemies', highlightColor: '#ffffff' },
+    { symbol: '\u25C9', color: '#ffd700', glow: 'rgba(255,215,0,0.6)', shortLabel: '+Magnetism', longDesc: '<hl>Attracts other powerups</hl> to you', highlightColor: '#ffe44d' },
+    { symbol: '\u2764', color: '#44ff44', glow: 'rgba(68,255,68,0.6)', shortLabel: '+1UP', longDesc: 'Adds <hl>lives</hl>', highlightColor: '#66ff66' },
+  ];
+
+  const pauseTitle = document.createElement('div');
+  pauseTitle.className = 'pause-title';
+  pauseTitle.textContent = 'PAUSED';
+  pauseOverlay.appendChild(pauseTitle);
+
+  const orbRow = document.createElement('div');
+  orbRow.className = 'orb-row';
+  const orbSlots: HTMLDivElement[] = [];
+  for (const orb of orbs) {
+    const slot = document.createElement('div');
+    slot.className = 'orb-slot';
+    slot.innerHTML = `<span class="orb-icon" style="color:${orb.color};text-shadow:0 0 6px ${orb.glow}">${orb.symbol}</span><span class="orb-label">${orb.shortLabel}</span>`;
+    orbRow.appendChild(slot);
+    orbSlots.push(slot);
+  }
+  pauseOverlay.appendChild(orbRow);
+
+  const detailBox = document.createElement('div');
+  detailBox.className = 'orb-detail';
+  pauseOverlay.appendChild(detailBox);
+
+  let pauseSelectedOrb = 0;
+
+  function updatePauseSelection() {
+    orbSlots.forEach((s, i) => s.classList.toggle('selected', i === pauseSelectedOrb));
+    const orb = orbs[pauseSelectedOrb];
+    const desc = orb.longDesc.replace(/<hl>/g, `<span style="color:${orb.highlightColor};font-weight:bold">`).replace(/<\/hl>/g, '</span>');
+    detailBox.innerHTML = `<span class="orb-detail-icon" style="color:${orb.color};text-shadow:0 0 10px ${orb.glow}">${orb.symbol}</span><span class="orb-detail-text">${desc}</span>`;
+  }
+  updatePauseSelection();
+
+  // Click to select
+  orbSlots.forEach((slot, i) => {
+    slot.addEventListener('click', () => { pauseSelectedOrb = i; updatePauseSelection(); });
+  });
+
   const gameWrapper = document.getElementById('game-wrapper');
   if (gameWrapper) gameWrapper.appendChild(pauseOverlay);
 
@@ -110,7 +189,10 @@ async function main() {
     const blastRings: BlastRing[] = [];
     const startY = player.y;
     const depthCounter = createDepthCounter(startY);
+    const hudState = createHudState();
     let hintsFaded = false;
+    const winState = createWinState();
+    const winOverlay = createWinOverlay();
 
     const terrain = createTerrainGrid();
     const cavePlan = createCavePlan(config);
@@ -132,6 +214,22 @@ async function main() {
     // Spawn initial items
     spawnItemsForRows(itemSpawner, 80, GRID_H, cavePlan, getItemConfig(), config.seed);
 
+    // Wire teleport
+    debugPanel.onTeleport((depth) => {
+      const targetY = startY + depth * CANVAS_H;
+      player.x = world.width / 2;
+      player.y = targetY;
+      player.vx = 0;
+      player.vy = 0;
+      camera.scrollY = targetY - CANVAS_H * 0.35;
+      camera.maxScrollY = camera.scrollY;
+      // Regenerate terrain at new position
+      const targetGy = Math.floor(targetY / CELL_SCALE);
+      terrain.worldYOffset = Math.max(0, targetGy - Math.floor(GRID_H / 2));
+      terrain.cells.fill(0);
+      generateRows(terrain, terrain.worldYOffset, GRID_H, cavePlan);
+    });
+
     const cursor = { value: 0 };
 
     // Clear particle buffer
@@ -143,10 +241,29 @@ async function main() {
     let gameTime = 0;
     let frameCursorStart = 0;
     let paused = false;
+    let prevPauseLeft = false;
+    let prevPauseRight = false;
     let aimDirX = 0;
     let aimDirY = -1;
 
     function tick(input: InputState, dt: number) {
+      // Win sequence
+      const wasPlaying = winState.phase === 'playing';
+      checkWinTrigger(winState, depthCounter.getDepth());
+      // On first trigger, kill all enemies
+      if (wasPlaying && winState.phase !== 'playing') {
+        for (const e of enemySys.enemies) e.alive = false;
+      }
+      if (winState.phase !== 'playing') {
+        const shouldReset = updateWinSequence(winState, dt);
+        if (shouldReset) {
+          winOverlay.destroy();
+          startSession();
+          return;
+        }
+        // Don't return — let the rest of tick run so player can still move
+      }
+
       const prevDead = player.dead;
       updatePlayer(player, input, world, terrain, dt, camera.scrollY, camera.maxScrollY);
 
@@ -155,6 +272,9 @@ async function main() {
       }
       if (!prevDead && player.dead) {
         emitRespawnBurst(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y);
+        if (hudState.lives > 0) {
+          hudState.lives--;
+        }
       }
 
       if (player.dead) return;
@@ -215,7 +335,10 @@ async function main() {
         const wBonus = charge.spiritRadius * Math.sqrt(ws) * icfg.windBallModifier;
         const wr = wDist + wBonus;
         if (wr > 2) {
-          damageEnemiesInRadius(enemySys, wbc.x, wbc.y, wr, 4);
+          const windDmg = damageEnemiesInRadius(enemySys, wbc.x, wbc.y, wr, 4, '#ffcc66');
+          for (const pos of windDmg.killedPositions) {
+            trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          }
         }
       }
 
@@ -281,7 +404,11 @@ async function main() {
         addShake(camera, 4 + proj.power * 12, 0.2 + proj.power * 0.3);
         blastAll(proj.x, proj.y, proj.power, craterR);
         const explosionDmg = Math.max(6, Math.round(proj.power * 30));
-        damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR, explosionDmg);
+        const bombColor = getBombDmgColor(proj.purpleOvercharge * 5);
+        const explResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR, explosionDmg, bombColor);
+        for (const pos of explResult.killedPositions) {
+          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+        }
       }
 
       // Terrain hits
@@ -293,8 +420,12 @@ async function main() {
       for (const proj of projectiles) {
         if (!proj.alive) continue;
         const contactDmg = Math.max(6, Math.round(proj.power * 20));
-        const { hit } = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius, contactDmg);
-        if (hit > 0) {
+        const contactColor = getBombDmgColor(proj.purpleOvercharge * 5);
+        const contactResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius, contactDmg, contactColor);
+        for (const pos of contactResult.killedPositions) {
+          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+        }
+        if (contactResult.hit > 0) {
           detonateProj(proj);
         }
       }
@@ -304,9 +435,12 @@ async function main() {
       updateEnemies(enemySys, player.x, player.y, dt, getEnemyConfig());
 
       // Enemy-player collision (damage player)
-      const enemyHits = checkEnemyPlayerCollision(enemySys, player.x, player.y, player.w, player.h);
-      if (enemyHits > 0) {
-        damagePlayer(player, enemyHits * 10);
+      const enemyCollision = checkEnemyPlayerCollision(enemySys, player.x, player.y, player.w, player.h);
+      if (enemyCollision.hits > 0) {
+        damagePlayer(player, enemyCollision.hits * 10);
+        for (const pos of enemyCollision.killedPositions) {
+          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+        }
       }
 
       cleanupEnemies(enemySys, camera.scrollY, gpu.canvas.height);
@@ -341,7 +475,13 @@ async function main() {
       // Item collection
       const collected = collectItems(itemSpawner, player.x, player.y, player.w, player.h);
       for (const id of collected) {
-        addItem(inventory, id);
+        if (id === 'extra_life') {
+          hudState.lives++;
+          const sx2 = player.x - gpu.canvas.width / 2;
+          oneUpPopup.show(player.x - sx2, player.y - camera.scrollY);
+        } else {
+          addItem(inventory, id);
+        }
       }
       cleanupItems(itemSpawner, camera.scrollY);
 
@@ -365,10 +505,26 @@ async function main() {
       }
 
       if (paused) {
+        // A/D to navigate orb selection while paused
+        if (input.clickPressed) {
+          // Check if click hit an orb slot (handled by DOM click listeners)
+        }
+        if (input.left && !prevPauseLeft) {
+          pauseSelectedOrb = (pauseSelectedOrb - 1 + orbs.length) % orbs.length;
+          updatePauseSelection();
+        }
+        if (input.right && !prevPauseRight) {
+          pauseSelectedOrb = (pauseSelectedOrb + 1) % orbs.length;
+          updatePauseSelection();
+        }
+        prevPauseLeft = input.left;
+        prevPauseRight = input.right;
         clearFrameInput();
         animFrameId = requestAnimationFrame(loop);
         return;
       }
+      prevPauseLeft = false;
+      prevPauseRight = false;
 
       accumulator += frameTime;
       let ticked = false;
@@ -438,7 +594,7 @@ async function main() {
         : 0;
       const digLightData = null;
       const chargeGlowStacks = getStacks(inventory, 'wind_ball');
-      const vertOverflow = renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, chargeOvercharge, chargeGlowStacks, enemySys, biome, digLightData, blastRings);
+      const vertOverflow = renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, chargeOvercharge, chargeGlowStacks, enemySys, biome, digLightData, blastRings, winState);
       overflowWarn.style.opacity = vertOverflow ? '1' : '0';
 
       updateParticleUniforms(gpu.device, particleSys, gpu.canvas.width, gpu.canvas.height, sx, sy);
@@ -450,8 +606,17 @@ async function main() {
       // Update HTML overlays
       hpBar.update(player, sx, sy);
       inventoryUI.update(inventory);
-      killCounter.update(enemySys.kills);
       depthCounter.update(player.y);
+
+      // Update HUD state
+      hudState.depth = depthCounter.getDepth();
+      hudState.kills = enemySys.kills;
+      // Check kill milestone (every 100 kills = 1UP)
+      if (checkKillMilestone(hudState)) {
+        oneUpPopup.show(player.x - sx, player.y - sy);
+      }
+      hudUI.update(hudState);
+      winOverlay.update(winState);
 
       animFrameId = requestAnimationFrame(loop);
     }
@@ -468,35 +633,33 @@ function updateCharge(input: InputState, player: Player, charge: ChargeState, pr
   const itemCfg = getItemConfig();
   const maxCharge = getMaxChargeTime(purpleStacks, itemCfg.purpleBallMaxChargeBonus);
 
-  // Click 1: start charging. Click 2: throw at mouse position.
-  if (input.clickPressed) {
-    if (!charge.charging) {
-      // Start charging
-      charge.charging = true;
-      charge.chargeTime = 0;
-      charge.chargeType = 'spirit';
-      charge.spiritRadius = 0;
-    } else {
-      // Throw toward mouse position (convert screen coords to world coords)
-      if (charge.chargeTime > 0.1) {
-        const worldTargetX = input.mouseX;
-        const worldTargetY = input.mouseY + cameraScrollY;
-        const windStacks = getStacks(inventory, 'wind_ball');
-        const overcharge = getPurpleOvercharge(charge.chargeTime, purpleStacks, itemCfg.purpleBallMaxChargeBonus);
-        const launchPos = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
-        projectiles.push(fireSpiritBomb(
-          charge.chargeTime, charge.spiritRadius,
-          launchPos.x, launchPos.y,
-          worldTargetX, worldTargetY,
-          windStacks, itemCfg.windBallModifier,
-          overcharge,
-        ));
-      }
-      charge.charging = false;
-      charge.chargeTime = 0;
-      charge.chargeType = null;
-      charge.spiritRadius = 0;
+  // Hold M1 to charge, release to fire
+  if (input.mouseHeld && !charge.charging) {
+    // Start charging
+    charge.charging = true;
+    charge.chargeTime = 0;
+    charge.chargeType = 'spirit';
+    charge.spiritRadius = 0;
+  } else if (input.mouseReleased && charge.charging) {
+    // Release — throw toward mouse position
+    if (charge.chargeTime > 0.05) {
+      const worldTargetX = input.mouseX;
+      const worldTargetY = input.mouseY + cameraScrollY;
+      const windStacks = getStacks(inventory, 'wind_ball');
+      const overcharge = getPurpleOvercharge(charge.chargeTime, purpleStacks, itemCfg.purpleBallMaxChargeBonus);
+      const launchPos = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
+      projectiles.push(fireSpiritBomb(
+        charge.chargeTime, charge.spiritRadius,
+        launchPos.x, launchPos.y,
+        worldTargetX, worldTargetY,
+        windStacks, itemCfg.windBallModifier,
+        overcharge,
+      ));
     }
+    charge.charging = false;
+    charge.chargeTime = 0;
+    charge.chargeType = null;
+    charge.spiritRadius = 0;
   }
 
   // Continue charging — purple stacks slightly boost charge rate

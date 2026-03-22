@@ -8,6 +8,7 @@ export interface ItemConfig {
   windBallModifier: number; // terrain destroy modifier per stack
   goldBallRadius: number; // base magnetism radius per stack
   goldBallSpeed: number; // base magnetism pull speed per stack
+  batDropChance: number; // chance a killed bat drops an item (0-1)
 }
 
 export function createDefaultItemConfig(): ItemConfig {
@@ -21,5 +22,6 @@ export function createDefaultItemConfig(): ItemConfig {
     windBallModifier: 0.05,
     goldBallRadius: 30,
     goldBallSpeed: 40,
+    batDropChance: 0.25,
   };
 }

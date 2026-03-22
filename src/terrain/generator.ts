@@ -1,4 +1,5 @@
 import { TerrainGrid, GRID_W, Material } from './grid';
+import { CANVAS_H, CELL_SCALE } from '../gameConfig';
 import { CavePlan, isInsidePath, expandPlan } from './cavePlan';
 
 /** World grid row where the surface (grass) begins. */
@@ -7,6 +8,13 @@ export const SURFACE_ROW = 80;
 /** Solid barrier to force first bomb use */
 const BARRIER_START = SURFACE_ROW + 8;
 const BARRIER_THICKNESS = 6;
+
+/** Boss room at depth 300 */
+export const WIN_DEPTH = 300;
+const BOSS_ROOM_HEIGHT_GY = Math.floor(CANVAS_H * 4 / CELL_SCALE); // 4 screens tall (3 falling + 1 bat room)
+export const BOSS_ROOM_START_GY = SURFACE_ROW + Math.floor(WIN_DEPTH * CANVAS_H / CELL_SCALE);
+const BOSS_ROOM_END_GY = BOSS_ROOM_START_GY + BOSS_ROOM_HEIGHT_GY;
+const BOSS_FLOOR_THICKNESS = 3;
 
 function hash2(x: number, y: number): number {
   let n = x * 73 + y * 157 + 37;
@@ -44,6 +52,20 @@ export function generateRows(grid: TerrainGrid, startWorldGy: number, count: num
     if (localGy < 0 || localGy >= grid.height) continue;
 
     const rowOffset = localGy * GRID_W;
+
+    // Boss room: empty with indestructible floor
+    if (worldGy >= BOSS_ROOM_START_GY && worldGy <= BOSS_ROOM_END_GY + BOSS_FLOOR_THICKNESS) {
+      for (let gx = 0; gx < GRID_W; gx++) {
+        if (gx < wt || gx >= GRID_W - wt) {
+          grid.cells[rowOffset + gx] = Material.WALL;
+        } else if (worldGy >= BOSS_ROOM_END_GY) {
+          grid.cells[rowOffset + gx] = Material.WALL; // indestructible floor
+        } else {
+          grid.cells[rowOffset + gx] = Material.AIR;
+        }
+      }
+      continue;
+    }
 
     // Above surface: AIR (with walls on edges)
     if (worldGy <= SURFACE_ROW) {

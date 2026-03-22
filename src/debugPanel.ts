@@ -18,6 +18,7 @@ export interface DebugPanel {
   getConfig(): CaveConfig;
   onRestart(cb: () => void): void;
   onItemChange(cb: (itemId: string, delta: number) => void): void;
+  onTeleport(cb: (depth: number) => void): void;
 }
 
 interface ParamDef {
@@ -181,6 +182,7 @@ const CATEGORIES: Category[] = [
       item('windBallModifier', 'Wind Modifier', 0, 2, 0.05),
       item('goldBallRadius', 'Gold Radius/stack', 5, 200, 5),
       item('goldBallSpeed', 'Gold Pull Speed/stack', 5, 200, 5),
+      item('batDropChance', 'Bat Drop Chance', 0, 1, 0.05),
     ],
   },
   {
@@ -223,11 +225,13 @@ export function createDebugPanel(): DebugPanel {
       getConfig() { return { ...caveConfig }; },
       onRestart(_cb) { /* no restart button without debug panel */ },
       onItemChange(_cb) {},
+      onTeleport(_cb) {},
     };
   }
 
   let restartCb: (() => void) | null = null;
   let itemChangeCb: ((itemId: string, delta: number) => void) | null = null;
+  let teleportCb: ((depth: number) => void) | null = null;
 
   const panel = document.createElement('div');
   panel.id = 'debug-panel';
@@ -653,6 +657,26 @@ export function createDebugPanel(): DebugPanel {
   }
 
   panel.appendChild(itemSection);
+
+  // Teleport section
+  const teleportSection = document.createElement('div');
+  teleportSection.className = 'debug-item-section';
+  const teleportTitle = document.createElement('div');
+  teleportTitle.className = 'debug-category-header';
+  teleportTitle.style.color = '#f88';
+  teleportTitle.textContent = 'TELEPORT';
+  teleportSection.appendChild(teleportTitle);
+
+  for (const depth of [99, 295]) {
+    const btn = document.createElement('button');
+    btn.className = 'debug-btn';
+    btn.style.background = '#855';
+    btn.textContent = `Go to Depth ${depth}`;
+    btn.addEventListener('click', () => { if (teleportCb) teleportCb(depth); });
+    teleportSection.appendChild(btn);
+  }
+
+  panel.appendChild(teleportSection);
   document.body.appendChild(panel);
 
   return {
@@ -660,6 +684,7 @@ export function createDebugPanel(): DebugPanel {
     getConfig() { return { ...caveConfig }; },
     onRestart(cb) { restartCb = cb; },
     onItemChange(cb) { itemChangeCb = cb; },
+    onTeleport(cb) { teleportCb = cb; },
   };
 }
 

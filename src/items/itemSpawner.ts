@@ -89,8 +89,24 @@ function rarityToItem(rarity: Rarity, rng: RNG): ItemId {
     case 'common': return 'purple_ball';
     case 'uncommon': return nextFloat(rng) < 0.5 ? 'wind_ball' : 'white_ball';
     case 'rare': return 'gold_ball';
-    case 'legendary': return 'smiley_face';
+    case 'legendary': return nextFloat(rng) < 0.15 ? 'extra_life' : 'smiley_face';
   }
+}
+
+/**
+ * Try to spawn a drop at a world position (e.g. from a killed bat).
+ * Uses batDropChance from config.
+ */
+export function trySpawnDrop(
+  spawner: ItemSpawner,
+  x: number, y: number,
+  config: ItemConfig,
+): void {
+  if (Math.random() > config.batDropChance) return;
+  const rng = createRNG(Math.floor(x * 7919 + y * 104729));
+  const rarity = rollRarity(rng, config);
+  const id = rarityToItem(rarity, rng);
+  spawner.items.push({ id, x, y, alive: true });
 }
 
 /**

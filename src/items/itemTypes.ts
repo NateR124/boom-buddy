@@ -1,6 +1,6 @@
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 
-export type ItemId = 'purple_ball' | 'wind_ball' | 'white_ball' | 'gold_ball' | 'smiley_face';
+export type ItemId = 'purple_ball' | 'wind_ball' | 'white_ball' | 'gold_ball' | 'smiley_face' | 'extra_life';
 
 export interface ItemDef {
   id: ItemId;
@@ -16,6 +16,7 @@ export const ITEM_DEFS: ItemDef[] = [
   { id: 'white_ball', name: 'Wind Ball', rarity: 'uncommon', color: '#ffffff', symbol: '\u25CB' },
   { id: 'gold_ball', name: 'Gold Ball', rarity: 'rare', color: '#ffd700', symbol: '\u25C9' },
   { id: 'smiley_face', name: 'Smiley Face', rarity: 'legendary', color: '#ffdd00', symbol: '\u263A' },
+  { id: 'extra_life', name: 'Extra Life', rarity: 'legendary', color: '#44ff44', symbol: '\u2764' },
 ];
 
 export function getItemDef(id: ItemId): ItemDef {

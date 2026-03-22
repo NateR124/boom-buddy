@@ -3,6 +3,7 @@ import { Projectile } from '../physics/projectile';
 import { WorldItem } from '../items/itemSpawner';
 import { getItemDef } from '../items/itemTypes';
 import { Enemy, EnemySystem, getDamageNumberRenderData } from '../enemies/enemySystem';
+import { WinState, drawBossStatue, getBoomRadius, getStatueMouthPos } from '../winSequence';
 
 interface ProjectileRenderData {
   pipeline: GPURenderPipeline;
@@ -126,6 +127,7 @@ export function renderProjectiles(
   batColors?: { batBody: number[]; batWing: number[]; batEye: number[] },
   digLight?: { x: number; y: number; w: number; h: number } | null,
   blastRings?: { x: number; y: number; maxRadius: number; age: number; strength: number }[],
+  winState?: WinState,
 ) {
   const verts: number[] = [];
 
@@ -221,7 +223,7 @@ export function renderProjectiles(
     for (const dn of dmgNums) {
       const dx = dn.x + cameraX;
       const dy = dn.y + cameraY;
-      drawNumber(verts, dx, dy, dn.amount, dn.alpha);
+      drawNumber(verts, dx, dy, dn.amount, dn.alpha, dn.color);
     }
   }
 
@@ -242,6 +244,16 @@ export function renderProjectiles(
           currentR - thickness / 2, currentR + thickness / 2,
           24, [1.0, 1.0, 1.0, alpha]);
       }
+    }
+  }
+
+  // Boss statue + boom phase spirit bomb
+  if (winState && winState.triggered) {
+    drawBossStatue(verts, cameraX, cameraY, time);
+    const boomR = getBoomRadius(winState);
+    if (boomR > 0) {
+      const mouth = getStatueMouthPos();
+      drawSpiritBomb(verts, mouth.x + cameraX, mouth.y + cameraY, boomR, time, 1.0, 5, 10);
     }
   }
 
@@ -464,11 +476,21 @@ function drawDigit(verts: number[], x: number, y: number, digit: number, color: 
   if (segs[6]) drawRect(verts, x, y + h - t / 2, w, t, color);
 }
 
-function drawNumber(verts: number[], x: number, y: number, num: number, alpha: number) {
+function parseHexColor(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.substring(0, 2), 16) / 255,
+    parseInt(h.substring(2, 4), 16) / 255,
+    parseInt(h.substring(4, 6), 16) / 255,
+  ];
+}
+
+function drawNumber(verts: number[], x: number, y: number, num: number, alpha: number, cssColor = '#ffe633') {
   const str = Math.round(num).toString();
   const totalW = str.length * (DIGIT_W + 1) - 1;
   let cx = x - totalW / 2;
-  const color: [number, number, number, number] = [1.0, 0.9, 0.2, alpha];
+  const [r, g, b] = parseHexColor(cssColor);
+  const color: [number, number, number, number] = [r, g, b, alpha];
   for (const ch of str) {
     const d = parseInt(ch);
     if (!isNaN(d)) {
