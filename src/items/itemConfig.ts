@@ -4,7 +4,7 @@ export interface ItemConfig {
   uncommonChance: number;
   rareChance: number;
   legendaryChance: number;
-  purpleBallDensityRate: number; // density gain per second per stack
+  purpleBallMaxChargeBonus: number; // extra max charge seconds per purple ball stack
   windBallModifier: number; // terrain destroy modifier per stack
   goldBallRadius: number; // base magnetism radius per stack
   goldBallSpeed: number; // base magnetism pull speed per stack
@@ -17,8 +17,8 @@ export function createDefaultItemConfig(): ItemConfig {
     uncommonChance: 0.35,
     rareChance: 0.05,
     legendaryChance: 0,
-    purpleBallDensityRate: 0.05,
-    windBallModifier: 0.1,
+    purpleBallMaxChargeBonus: 0.1, // each purple ball adds 0.1s to max charge (~30 balls to double)
+    windBallModifier: 0.05,
     goldBallRadius: 30,
     goldBallSpeed: 40,
   };

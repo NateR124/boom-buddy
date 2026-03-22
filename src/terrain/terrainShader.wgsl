@@ -13,6 +13,12 @@ struct Uniforms {
   worldYOffset: u32, // grid rows scrolled off top (for depth calculation)
   _pad0: f32,
   _pad1: f32,
+  biome_cave: vec3f,
+  _pad2: f32,
+  biome_dirtLight: vec3f,
+  _pad3: f32,
+  biome_dirtDark: vec3f,
+  _pad4: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -265,8 +271,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let worldGy_air = i32(uniforms.worldYOffset) + gy;
     let depthBelow_air = f32(max(worldGy_air - 80, 0)); // 80 = SURFACE_ROW
     let caveFactor = smoothstep(0.0, 60.0, depthBelow_air);
-    let caveColor = vec3f(0.02, 0.02, 0.04);
-    let finalSky = mix(sky, caveColor, caveFactor);
+    let finalSky = mix(sky, uniforms.biome_cave, caveFactor);
     return vec4f(finalSky, 1.0);
   }
 
@@ -276,8 +281,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     let worldGy_w = i32(uniforms.worldYOffset) + gy;
     let depthBelow_w = f32(max(worldGy_w - 80, 0));
     let caveFactor_w = smoothstep(0.0, 60.0, depthBelow_w);
-    let caveColor_w = vec3f(0.02, 0.02, 0.04);
-    let bgColor = mix(sky, caveColor_w, caveFactor_w);
+    let bgColor = mix(sky, uniforms.biome_cave, caveFactor_w);
 
     let noise_w = hash(vec2u(u32(gx), u32(gy)));
     let wave = 0.5 + 0.5 * sin(uniforms.time * 2.0 + f32(gx) * 0.3 + f32(gy) * 0.2);
@@ -317,9 +321,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
       }
     }
     if (depth == 0.0) { depth = 1.0; }
-    let lightBrown = vec3f(0.50, 0.35, 0.16);
-    let darkBrown = vec3f(0.28, 0.18, 0.07);
-    color = mix(lightBrown, darkBrown, depth) + noise * 0.03;
+    color = mix(uniforms.biome_dirtLight, uniforms.biome_dirtDark, depth) + noise * 0.03;
   } else if (mat == MAT_RUBBLE) {
     color = vec3f(0.52 + noise * 0.08, 0.38 + noise * 0.06, 0.20 + noise * 0.04);
   } else if (mat == MAT_STONE) {

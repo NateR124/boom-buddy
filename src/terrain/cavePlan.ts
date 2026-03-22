@@ -115,64 +115,69 @@ export function expandPlan(plan: CavePlan, targetY: number): void {
 
   const rng = createRNG(cfg.seed + plan.generatedUntilY * 7919);
 
-  while (plan.generatedUntilY < targetY) {
-    const checkY = plan.generatedUntilY;
+  // Step through in branchCheckInterval increments so we check for branches
+  // while paths are still alive, not just at their endpoints
+  let checkY = plan.generatedUntilY;
 
+  while (checkY < targetY) {
+    // Active = paths that contain checkY
     const activePaths = plan.paths.filter(
-      p => p.startY <= checkY && p.endY >= checkY - cfg.branchCheckInterval
+      p => p.startY <= checkY && p.endY > checkY
     );
 
+    console.log(`[CAVE] checkY=${checkY} activePaths=${activePaths.length} totalPaths=${plan.paths.length}`);
+    for (const p of activePaths) {
+      console.log(`  active: type=${p.type} startY=${p.startY} endY=${p.endY} originX=${Math.round(p.originX)} remaining=${p.endY - checkY}`);
+    }
+
     if (activePaths.length === 0) {
+      // No active paths — force spawn a continuation from the last path
       const lastPath = plan.paths[plan.paths.length - 1];
       const lastX = getPathCenterX(plan, lastPath, lastPath.endY);
-      // Start overlapping with the parent
       const startY = Math.max(lastPath.startY + 1, lastPath.endY - OVERLAP_ROWS);
       const forced = spawnPath(rng, cfg, startY, lastX);
       plan.paths.push(forced);
-      plan.generatedUntilY = forced.endY;
+      console.log(`  [FORCED] no active paths → spawned ${forced.type} at x=${forced.originX} y=${forced.startY}–${forced.endY}`);
+      // Don't skip ahead — re-check at same checkY with new path
       continue;
     }
 
-    // Try branching
+    // Try branching from each active path (only if under max)
     for (const parent of activePaths) {
-      if (nextFloat(rng) < cfg.branchChance) {
-        const branchY = Math.max(checkY, parent.startY + cfg.minPathLength);
-        if (branchY < parent.endY) {
-          const parentX = getPathCenterX(plan, parent, branchY);
-          const parentHW = getPathHalfWidth(plan, parent, branchY);
-          // Branch starts at the edge of the parent path so it forks visibly
-          const dir = nextFloat(rng) < 0.5 ? -1 : 1;
-          const offset = parentHW + nextInt(rng, cfg.branchOffsetMin, cfg.branchOffsetMax);
-          const branchX = Math.max(
-            getMinCenterX(cfg),
-            Math.min(getMaxCenterX(cfg), parentX + dir * offset)
-          );
-          // Start overlapping with the parent so there's no gap at the fork
-          const branch = spawnPath(rng, cfg, branchY - OVERLAP_ROWS, branchX);
-          plan.paths.push(branch);
-          if (branch.endY > plan.generatedUntilY) {
-            plan.generatedUntilY = branch.endY;
-          }
-        }
+      const roll = nextFloat(rng);
+      const currentActive = plan.paths.filter(p => p.startY <= checkY && p.endY > checkY).length;
+      console.log(`  branch roll=${roll.toFixed(3)} vs chance=${cfg.branchChance} active=${currentActive}/${cfg.maxActivePaths} parentRemaining=${parent.endY - checkY}`);
+      if (roll < cfg.branchChance && currentActive < cfg.maxActivePaths) {
+        const parentX = getPathCenterX(plan, parent, checkY);
+        const parentHW = getPathHalfWidth(plan, parent, checkY);
+        const dir = nextFloat(rng) < 0.5 ? -1 : 1;
+        const offset = parentHW + nextInt(rng, cfg.branchOffsetMin, cfg.branchOffsetMax);
+        const branchX = Math.max(
+          getMinCenterX(cfg),
+          Math.min(getMaxCenterX(cfg), parentX + dir * offset)
+        );
+        // Branch starts overlapping with parent for smooth fork
+        const branch = spawnPath(rng, cfg, checkY - OVERLAP_ROWS, branchX);
+        plan.paths.push(branch);
+        console.log(`  [BRANCH] from parent(${parent.type}) → ${branch.type} at x=${branchX} y=${branch.startY}–${branch.endY} (parentHW=${parentHW.toFixed(1)} offset=${offset})`);
       }
     }
 
-    // Ensure continuity: spawn continuation before the latest path ends
+    // Ensure continuity: if the furthest-reaching path ends soon, spawn a continuation
     const maxEndY = Math.max(...plan.paths.map(p => p.endY));
     if (maxEndY <= checkY + cfg.minPathLength) {
       const latest = plan.paths.reduce((a, b) => a.endY > b.endY ? a : b);
       const contX = getPathCenterX(plan, latest, latest.endY);
-      // Start the continuation overlapping with the parent
       const startY = Math.max(latest.startY + 1, latest.endY - OVERLAP_ROWS);
       const cont = spawnPath(rng, cfg, startY, contX);
       plan.paths.push(cont);
-      if (cont.endY > plan.generatedUntilY) {
-        plan.generatedUntilY = cont.endY;
-      }
+      console.log(`  [CONTINUITY] maxEndY=${maxEndY} → spawned ${cont.type} at x=${Math.round(contX)} y=${cont.startY}–${cont.endY}`);
     }
 
-    plan.generatedUntilY = Math.max(plan.generatedUntilY, checkY + cfg.branchCheckInterval);
+    checkY += cfg.branchCheckInterval;
   }
+
+  plan.generatedUntilY = checkY;
 }
 
 function spawnPath(rng: RNG, cfg: CaveConfig, startY: number, centerX: number): PathSegment {

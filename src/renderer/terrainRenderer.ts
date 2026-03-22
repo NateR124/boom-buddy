@@ -20,9 +20,8 @@ export function createTerrainRenderer(gpu: GpuContext): TerrainRenderData {
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
 
-  // Uniforms: resolution(2f) + gridSize(2u) + time(1f) + cameraXY(2f) + dayPhase(1f) + regenTimer(1f) + worldYOffset(1u) + pad(2f) = 48 bytes
   const uniformBuffer = device.createBuffer({
-    size: 48,
+    size: 96,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -75,6 +74,7 @@ export function uploadTerrainGrid(
   dayPhase = 0,
   regenTimer = 0,
   worldYOffset = 0,
+  biomeColors?: { cave: number[]; dirtLight: number[]; dirtDark: number[] },
 ) {
   // Pack cells: 4 bytes per u32
   const packed = new Uint32Array(GRID_BUFFER_SIZE / 4);
@@ -89,8 +89,7 @@ export function uploadTerrainGrid(
   }
   device.queue.writeBuffer(data.gridBuffer, 0, packed.buffer);
 
-  // Uniforms: resolution(2f), gridSize(2u), time(1f), cameraX(1f), cameraY(1f), dayPhase(1f), regenTimer(1f), worldYOffset(1u), pad(2f)
-  const unifBuf = new ArrayBuffer(48);
+  const unifBuf = new ArrayBuffer(96);
   const f32 = new Float32Array(unifBuf);
   const u32 = new Uint32Array(unifBuf);
   f32[0] = canvasW;
@@ -103,6 +102,12 @@ export function uploadTerrainGrid(
   f32[7] = dayPhase;
   f32[8] = regenTimer;
   u32[9] = worldYOffset;
+  // f32[10], f32[11] = pad
+  // Biome colors (vec3f + pad each, starting at offset 48)
+  const bc = biomeColors ?? { cave: [0.02, 0.02, 0.04], dirtLight: [0.50, 0.35, 0.16], dirtDark: [0.28, 0.18, 0.07] };
+  f32[12] = bc.cave[0]; f32[13] = bc.cave[1]; f32[14] = bc.cave[2];
+  f32[16] = bc.dirtLight[0]; f32[17] = bc.dirtLight[1]; f32[18] = bc.dirtLight[2];
+  f32[20] = bc.dirtDark[0]; f32[21] = bc.dirtDark[1]; f32[22] = bc.dirtDark[2];
   device.queue.writeBuffer(data.uniformBuffer, 0, unifBuf);
 }
 

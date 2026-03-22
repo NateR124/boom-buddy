@@ -10,6 +10,7 @@ import { createTerrainGrid, shiftGridUp, stepAutomata, CELL_SCALE, GRID_H, Terra
 import { generateRows } from './terrain/generator';
 import { createCavePlan } from './terrain/cavePlan';
 import { createDebugPanel } from './debugPanel';
+import { carveDigArea, DIG_INTERVAL } from './dig';
 import { createHpBar } from './hpBar';
 import { createKillCounter } from './killCounter';
 import { damagePlayer, getHealthConfig } from './physics/player';
@@ -24,16 +25,19 @@ import {
   Projectile, ChargeState, createChargeState,
   getChargeNormalized,
   fireSpiritBomb, updateProjectiles,
-  getSpiritBombRadius, getSpiritBombCenterY,
-  getCraterRadius,
+  getSpiritBombRadius, getSpiritBombCenter,
+  getCraterRadius, getMaxChargeTime, getPurpleOvercharge,
 } from './physics/projectile';
 import { InputState } from './input';
 import { createCamera, addShake, updateShake, updateCameraScroll } from './camera';
 import {
   createEnemySystem, spawnEnemies, updateEnemies,
-  damageEnemiesInRadius, damageEnemiesWithProjectiles,
+  damageEnemiesInRadius, knockbackEnemiesInRadius,
   checkEnemyPlayerCollision, cleanupEnemies,
 } from './enemies/enemySystem';
+import { CANVAS_W, CANVAS_H } from './gameConfig';
+import { createDepthCounter } from './depthCounter';
+import { getBiomeColors } from './biomeColors';
 
 const FIXED_DT = 1 / 60;
 const MAX_PARTICLES = 4096;
@@ -44,6 +48,8 @@ const SHIFT_AMOUNT = 30;
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+  canvas.width = CANVAS_W;
+  canvas.height = CANVAS_H;
   const fallback = document.getElementById('fallback') as HTMLElement;
 
   const gpuResult = await initGpu(canvas);
@@ -54,7 +60,7 @@ async function main() {
   }
   const gpu = gpuResult;
 
-  initInput();
+  initInput(canvas);
 
   const debugPanel = createDebugPanel();
   const hpBar = createHpBar();
@@ -97,7 +103,13 @@ async function main() {
     const projectiles: Projectile[] = [];
     const camera = createCamera();
     const enemySys = createEnemySystem();
+    let digTimer = 0;
+
+    // Blast ring visuals
+    interface BlastRing { x: number; y: number; maxRadius: number; age: number; strength: number; }
+    const blastRings: BlastRing[] = [];
     const startY = player.y;
+    const depthCounter = createDepthCounter(startY);
     let hintsFaded = false;
 
     const terrain = createTerrainGrid();
@@ -120,10 +132,12 @@ async function main() {
     let gameTime = 0;
     let frameCursorStart = 0;
     let paused = false;
+    let aimDirX = 0;
+    let aimDirY = -1;
 
     function tick(input: InputState, dt: number) {
       const prevDead = player.dead;
-      updatePlayer(player, input, world, terrain, dt, camera.scrollY);
+      updatePlayer(player, input, world, terrain, dt, camera.scrollY, camera.maxScrollY);
 
       if (prevDead && !player.dead) {
         emitRespawnBurst(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y);
@@ -157,18 +171,38 @@ async function main() {
         stepAutomata(terrain);
       }
 
-      updateCharge(input, player, charge, projectiles, dt, inventory, terrain);
+      // Compute aim direction from mouse (screen coords → relative to player screen pos)
+      const psx = player.x + camera.shakeX;
+      const psy = player.y - camera.scrollY + camera.shakeY;
+      const arx = input.mouseX - psx;
+      const ary = input.mouseY - psy;
+      const arl = Math.sqrt(arx * arx + ary * ary);
+      aimDirX = arl > 1 ? arx / arl : 0;
+      aimDirY = arl > 1 ? ary / arl : -1;
 
-      // Wind Ball: damage enemies near charging bomb
-      if (charge.charging && charge.spiritRadius > 0) {
+      updateCharge(input, player, charge, projectiles, dt, inventory, terrain, camera.scrollY, aimDirX, aimDirY);
+
+      // Passive dig: charging bomb slowly carves terrain in aim direction
+      if (charge.charging) {
+        digTimer += dt;
+        if (digTimer >= DIG_INTERVAL) {
+          digTimer -= DIG_INTERVAL;
+          carveDigArea(player, terrain, aimDirX, aimDirY);
+        }
+      } else {
+        digTimer = 0;
+      }
+
+      // Wind: damage enemies near charging bomb (25% chance per tick, 4x damage)
+      if (charge.charging && charge.spiritRadius > 0 && Math.random() < 0.25) {
+        const wbc = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
+        const wDist = Math.sqrt((wbc.x - player.x) ** 2 + (wbc.y - player.y) ** 2) + charge.spiritRadius;
         const ws = getStacks(inventory, 'wind_ball');
-        if (ws > 0) {
-          const icfg = getItemConfig();
-          const wr = charge.spiritRadius * ws * icfg.windBallModifier;
-          if (wr > 2) {
-            const by = getSpiritBombCenterY(player.y, charge.spiritRadius);
-            damageEnemiesInRadius(enemySys, player.x, by, wr);
-          }
+        const icfg = getItemConfig();
+        const wBonus = charge.spiritRadius * Math.sqrt(ws) * icfg.windBallModifier;
+        const wr = wDist + wBonus;
+        if (wr > 2) {
+          damageEnemiesInRadius(enemySys, wbc.x, wbc.y, wr, 4);
         }
       }
 
@@ -177,10 +211,10 @@ async function main() {
         emitChargeAura(particleSys.cpuData, MAX_PARTICLES, cursor, player.x, player.y, norm);
 
         if (charge.spiritRadius > 3) {
-          const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
+          const bc = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
           emitSpiritBombOrbit(
             particleSys.cpuData, MAX_PARTICLES, cursor,
-            player.x, bombY, charge.spiritRadius,
+            bc.x, bc.y, charge.spiritRadius,
           );
         }
       }
@@ -192,37 +226,62 @@ async function main() {
         emitProjectileTrail(particleSys.cpuData, MAX_PARTICLES, cursor, p.x, p.y, p.level);
       }
 
-      for (const { proj, carve } of hits) {
+      // Wind stacks boost blast force, radius, and knockback
+      const windStacks = getStacks(inventory, 'white_ball');
+      const windMult = 0.3 + windStacks * 0.3;
+
+      // Helper: apply explosion knockback to player + enemies
+      function blastAll(ex: number, ey: number, power: number, radius: number) {
+        // Blast radius has a generous minimum so player always feels it nearby
+        const blastRadius = Math.max(radius * 3, radius * 2 * windMult);
+        const baseForce = (1500 + power * 1500) * windMult;
+
+        // Player knockback
+        const pdx = player.x - ex;
+        const pdy = player.y - ey;
+        const dist = Math.sqrt(pdx * pdx + pdy * pdy);
+        if (dist < blastRadius && dist > 1) {
+          const falloff = 1 - dist / blastRadius;
+          const force = baseForce * falloff;
+          player.vx += (pdx / dist) * force;
+          player.vy += (pdy / dist) * force;
+        }
+
+        // Bat knockback
+        knockbackEnemiesInRadius(enemySys, ex, ey, blastRadius, baseForce);
+
+        // Blast ring visual — stronger wind = lower opacity
+        const strength = Math.min(windStacks / 10, 1);
+        blastRings.push({ x: ex, y: ey, maxRadius: blastRadius, age: 0, strength });
+      }
+
+      // Helper: full detonation effect for a projectile
+      function detonateProj(proj: Projectile) {
+        proj.alive = false;
+        const craterR = getCraterRadius(proj);
+        const carve = carveExplosion(terrain, proj.x, proj.y, craterR);
         emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, proj.power);
         if (carve.count > 0) {
           emitTerrainDebris(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, carve.count);
         }
-        const shakeIntensity = 4 + proj.power * 12;
-        const shakeDuration = 0.2 + proj.power * 0.3;
-        addShake(camera, shakeIntensity, shakeDuration);
+        addShake(camera, 4 + proj.power * 12, 0.2 + proj.power * 0.3);
+        blastAll(proj.x, proj.y, proj.power, craterR);
+        const explosionDmg = Math.max(6, Math.round(proj.power * 30));
+        damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR, explosionDmg);
       }
 
-      // Enemies: damage from explosions
+      // Terrain hits
       for (const { proj } of hits) {
-        const craterR = proj.radius * 1.5;
-        damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR);
+        detonateProj(proj);
       }
 
-      // Enemies: flying projectile hits enemy → detonate the bomb
+      // Flying projectile contacts enemy → detonate
       for (const proj of projectiles) {
         if (!proj.alive) continue;
-        const killed = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius);
-        if (killed > 0) {
-          proj.alive = false;
-          const craterR = getCraterRadius(proj);
-          const carve = carveExplosion(terrain, proj.x, proj.y, craterR);
-          emitImpactExplosion(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, proj.power);
-          if (carve.count > 0) {
-            emitTerrainDebris(particleSys.cpuData, MAX_PARTICLES, cursor, proj.x, proj.y, carve.count);
-          }
-          addShake(camera, 4 + proj.power * 12, 0.2 + proj.power * 0.3);
-          // Also kill any other enemies caught in the crater
-          damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR);
+        const contactDmg = Math.max(6, Math.round(proj.power * 20));
+        const { hit } = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius, contactDmg);
+        if (hit > 0) {
+          detonateProj(proj);
         }
       }
 
@@ -239,6 +298,12 @@ async function main() {
       cleanupEnemies(enemySys, camera.scrollY, gpu.canvas.height);
 
       updateShake(camera, dt);
+
+      // Age blast rings
+      for (let i = blastRings.length - 1; i >= 0; i--) {
+        blastRings[i].age += dt;
+        if (blastRings[i].age >= 0.5) blastRings.splice(i, 1);
+      }
 
       // Gold Ball magnetism: pull nearby items toward the player
       const goldStacks = getStacks(inventory, 'gold_ball');
@@ -316,10 +381,10 @@ async function main() {
       const attractors: AttractorDef[] = [];
       if (charge.charging && charge.spiritRadius > 3) {
         const norm = getChargeNormalized(charge.chargeTime);
-        const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
+        const bc = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
         attractors.push({
-          x: player.x,
-          y: bombY,
+          x: bc.x,
+          y: bc.y,
           strength: 400 + norm * 600,
           radius: Math.max(80, charge.spiritRadius * 2.5),
           tangent: 250 + norm * 400,
@@ -342,15 +407,24 @@ async function main() {
       });
 
       const dayPhase = (gameTime % DAY_CYCLE) / DAY_CYCLE;
-      uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, terrainCameraX, terrainCameraY, dayPhase, 0, terrain.worldYOffset);
+      const biome = getBiomeColors(depthCounter.getDepth());
+      uploadTerrainGrid(gpu.device, terrainRenderData, terrain, gameTime, gpu.canvas.width, gpu.canvas.height, terrainCameraX, terrainCameraY, dayPhase, 0, terrain.worldYOffset, biome);
       renderTerrain(pass, terrainRenderData);
 
-      renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, charge.charging, sx, sy);
+      renderPlayer(pass, playerRendererData, gpu.device, player, gameTime, charge.charging, sx, sy, aimDirX, aimDirY);
 
       const spiritR = charge.charging ? charge.spiritRadius : 0;
-      const spiritX = player.x;
-      const spiritY = spiritR > 0 ? getSpiritBombCenterY(player.y, spiritR) : player.y;
-      const vertOverflow = renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, charge.density, enemySys.enemies);
+      const spiritCenter = spiritR > 0
+        ? getSpiritBombCenter(player.x, player.y, spiritR, aimDirX, aimDirY)
+        : { x: player.x, y: player.y };
+      const spiritX = spiritCenter.x;
+      const spiritY = spiritCenter.y;
+      const chargeOvercharge = charge.charging
+        ? getPurpleOvercharge(charge.chargeTime, getStacks(inventory, 'purple_ball'), getItemConfig().purpleBallMaxChargeBonus)
+        : 0;
+      const digLightData = null;
+      const chargeGlowStacks = getStacks(inventory, 'wind_ball');
+      const vertOverflow = renderProjectiles(pass, projRenderer, gpu.device, projectiles, spiritX, spiritY, spiritR, gameTime, sx, sy, itemSpawner.items, chargeOvercharge, chargeGlowStacks, enemySys, biome, digLightData, blastRings);
       overflowWarn.style.opacity = vertOverflow ? '1' : '0';
 
       updateParticleUniforms(gpu.device, particleSys, gpu.canvas.width, gpu.canvas.height, sx, sy);
@@ -363,6 +437,7 @@ async function main() {
       hpBar.update(player, sx, sy);
       inventoryUI.update(inventory);
       killCounter.update(enemySys.kills);
+      depthCounter.update(player.y);
 
       animFrameId = requestAnimationFrame(loop);
     }
@@ -374,59 +449,58 @@ async function main() {
   startSession();
 }
 
-function updateCharge(input: InputState, player: Player, charge: ChargeState, projectiles: Projectile[], dt: number, inventory: Inventory, terrain: TerrainGrid) {
-  if (input.charge && !charge.charging) {
-    charge.charging = true;
-    charge.chargeTime = 0;
-    charge.chargeType = 'spirit';
-    charge.spiritRadius = 0;
-    charge.density = 0;
+function updateCharge(input: InputState, player: Player, charge: ChargeState, projectiles: Projectile[], dt: number, inventory: Inventory, _terrain: TerrainGrid, cameraScrollY: number, aimDirX: number, aimDirY: number) {
+  const purpleStacks = getStacks(inventory, 'purple_ball');
+  const itemCfg = getItemConfig();
+  const maxCharge = getMaxChargeTime(purpleStacks, itemCfg.purpleBallMaxChargeBonus);
+
+  // Click 1: start charging. Click 2: throw at mouse position.
+  if (input.clickPressed) {
+    if (!charge.charging) {
+      // Start charging
+      charge.charging = true;
+      charge.chargeTime = 0;
+      charge.chargeType = 'spirit';
+      charge.spiritRadius = 0;
+    } else {
+      // Throw toward mouse position (convert screen coords to world coords)
+      if (charge.chargeTime > 0.1) {
+        const worldTargetX = input.mouseX;
+        const worldTargetY = input.mouseY + cameraScrollY;
+        const windStacks = getStacks(inventory, 'wind_ball');
+        const overcharge = getPurpleOvercharge(charge.chargeTime, purpleStacks, itemCfg.purpleBallMaxChargeBonus);
+        const launchPos = getSpiritBombCenter(player.x, player.y, charge.spiritRadius, aimDirX, aimDirY);
+        projectiles.push(fireSpiritBomb(
+          charge.chargeTime, charge.spiritRadius,
+          launchPos.x, launchPos.y,
+          worldTargetX, worldTargetY,
+          windStacks, itemCfg.windBallModifier,
+          overcharge,
+        ));
+      }
+      charge.charging = false;
+      charge.chargeTime = 0;
+      charge.chargeType = null;
+      charge.spiritRadius = 0;
+    }
   }
 
-  if (charge.charging && input.charge) {
+  // Continue charging
+  if (charge.charging) {
     charge.chargeTime += dt;
+    // Cap charge time at max (vanilla + purple bonus)
+    if (charge.chargeTime > maxCharge) {
+      charge.chargeTime = maxCharge;
+    }
     charge.spiritRadius = getSpiritBombRadius(charge.chargeTime);
 
-    // Purple Ball: accumulate density while charging
-    const purpleStacks = getStacks(inventory, 'purple_ball');
-    if (purpleStacks > 0) {
-      const itemCfg = getItemConfig();
-      charge.density += purpleStacks * itemCfg.purpleBallDensityRate * dt;
-    }
-
-    // Wind Ball: passively destroy terrain around the charging bomb
-    const windStacks = getStacks(inventory, 'wind_ball');
-    if (windStacks > 0) {
-      const itemCfg = getItemConfig();
-      const bombY = getSpiritBombCenterY(player.y, charge.spiritRadius);
-      const windRadius = charge.spiritRadius * windStacks * itemCfg.windBallModifier;
-      if (windRadius > 2) {
-        carveExplosion(terrain, player.x, bombY, windRadius, player.y);
-      }
-    }
+    // Wind is now enemy-damage only (handled in tick above), no terrain carving
 
     // Self-damage when charging past size threshold
     const hCfg = getHealthConfig();
     if (charge.spiritRadius > hCfg.bombDamageThreshold) {
       damagePlayer(player, hCfg.bombDamagePerSecond * dt);
     }
-  }
-
-  if (charge.charging && input.chargeReleased) {
-    if (charge.chargeTime > 0.3) {
-      const windStacks = getStacks(inventory, 'wind_ball');
-      const itemCfg = getItemConfig();
-      projectiles.push(fireSpiritBomb(
-        charge.chargeTime, charge.spiritRadius,
-        player.x, player.y, player.facing,
-        charge.density, windStacks, itemCfg.windBallModifier,
-      ));
-    }
-    charge.charging = false;
-    charge.chargeTime = 0;
-    charge.chargeType = null;
-    charge.spiritRadius = 0;
-    charge.density = 0;
   }
 }
 

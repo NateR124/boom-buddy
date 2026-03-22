@@ -82,7 +82,7 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function getPose(player: Player, time: number, chargingSpirit?: boolean): Skeleton {
+function getPose(player: Player, time: number, chargingSpirit?: boolean, aimDirX = 0, aimDirY = -1): Skeleton {
   const f = player.facing; // 1 = right, -1 = left
   const speed = Math.abs(player.vx);
   const vy = player.vy;
@@ -119,7 +119,9 @@ function getPose(player: Player, time: number, chargingSpirit?: boolean): Skelet
   };
 
   if (chargingSpirit) {
-    applySpiritCharge(skel, f, time);
+    applySpiritCharge(skel, f, time, aimDirX, aimDirY);
+  } else if (player.fastDropping) {
+    applyFastDrop(skel);
   } else if (!grounded && vy < -50) {
     applyJumpRise(skel, f);
   } else if (!grounded && vy > 50) {
@@ -136,27 +138,44 @@ function getPose(player: Player, time: number, chargingSpirit?: boolean): Skelet
   return skel;
 }
 
-function applySpiritCharge(s: Skeleton, facing: number, time: number) {
-  // Dramatic arms-up pose — holding the spirit bomb overhead
-  // Slight strain tremor for visual energy
-  const tremor = Math.sin(time * 30) * 0.6;
-  const sway = Math.sin(time * 4) * 1.0;
+function applySpiritCharge(s: Skeleton, facing: number, time: number, aimDirX: number, aimDirY: number) {
+  // Arms reach toward the aim direction (mouse), holding the spirit bomb
+  const tremor = Math.sin(time * 30) * 0.4;
 
-  // Both arms reaching up, elbows bent outward, hands close together above head
-  s.elbowL[0] = s.shoulderL[0] - 5 + tremor;
-  s.elbowL[1] = s.shoulderL[1] - 10;
-  s.handL[0] = s.shoulderL[0] + 1 + tremor;
-  s.handL[1] = s.shoulderL[1] - 18;
+  // Normalize aim direction
+  const len = Math.sqrt(aimDirX * aimDirX + aimDirY * aimDirY);
+  const dx = len > 0.01 ? aimDirX / len : 0;
+  const dy = len > 0.01 ? aimDirY / len : -1;
 
-  s.elbowR[0] = s.shoulderR[0] + 5 + tremor;
-  s.elbowR[1] = s.shoulderR[1] - 10;
-  s.handR[0] = s.shoulderR[0] - 1 + tremor;
-  s.handR[1] = s.shoulderR[1] - 18;
+  // Perpendicular for spreading elbows
+  const px = -dy;
+  const py = dx;
 
-  // Lean back slightly from the effort
-  s.head[0] += -facing * 1 + sway;
-  s.head[1] -= 1;
-  s.neck[0] += -facing * 0.5 + sway * 0.5;
+  // Hand target: arms extend ~20px in aim direction from shoulder center
+  const shoulderCX = (s.shoulderL[0] + s.shoulderR[0]) / 2;
+  const shoulderCY = (s.shoulderL[1] + s.shoulderR[1]) / 2;
+  const handDist = 18;
+  const elbowDist = 10;
+
+  const handX = shoulderCX + dx * handDist + tremor;
+  const handY = shoulderCY + dy * handDist;
+
+  // Elbows splay outward from the aim line
+  s.elbowL[0] = shoulderCX + dx * elbowDist + px * -4;
+  s.elbowL[1] = shoulderCY + dy * elbowDist + py * -4;
+  s.elbowR[0] = shoulderCX + dx * elbowDist + px * 4;
+  s.elbowR[1] = shoulderCY + dy * elbowDist + py * 4;
+
+  // Hands converge at the hold point
+  s.handL[0] = handX + px * -1.5;
+  s.handL[1] = handY + py * -1.5;
+  s.handR[0] = handX + px * 1.5;
+  s.handR[1] = handY + py * 1.5;
+
+  // Face the aim direction
+  const sway = Math.sin(time * 4) * 0.5;
+  s.head[0] += dx * 2 + sway;
+  s.head[1] += dy * 1;
 
   // Legs planted wide in a power stance
   s.kneeL[0] = s.hipL[0] - 2;
@@ -326,6 +345,32 @@ function applyFalling(s: Skeleton, facing: number) {
   s[trailFoot][1] = s[trailKnee][1] + LOWER_LEG;
 }
 
+function applyFastDrop(s: Skeleton) {
+  // Streamlined dive pose — arms straight up, legs together
+  // Arms straight up
+  s.elbowL[0] = s.shoulderL[0] + 1;
+  s.elbowL[1] = s.shoulderL[1] - 10;
+  s.handL[0] = s.shoulderL[0] + 1;
+  s.handL[1] = s.shoulderL[1] - 18;
+
+  s.elbowR[0] = s.shoulderR[0] - 1;
+  s.elbowR[1] = s.shoulderR[1] - 10;
+  s.handR[0] = s.shoulderR[0] - 1;
+  s.handR[1] = s.shoulderR[1] - 18;
+
+  // Legs together, straight down
+  const legX = (s.hipL[0] + s.hipR[0]) / 2;
+  s.kneeL[0] = legX - 1;
+  s.kneeL[1] = s.hipL[1] + UPPER_LEG;
+  s.footL[0] = legX - 1;
+  s.footL[1] = s.kneeL[1] + LOWER_LEG;
+
+  s.kneeR[0] = legX + 1;
+  s.kneeR[1] = s.hipR[1] + UPPER_LEG;
+  s.footR[0] = legX + 1;
+  s.footR[1] = s.kneeR[1] + LOWER_LEG;
+}
+
 function applyJumpApex(s: Skeleton, facing: number, t: number) {
   // Blend: t=0 is fully jump-rise, t=1 is fully falling
   const rise = {} as Skeleton;
@@ -403,6 +448,18 @@ export function createPlayerRenderer(gpu: GpuContext): PlayerRenderData {
 
 type Color = [number, number, number];
 
+/** Returns the world-space position where the spirit bomb should be held */
+export function getHoldPosition(player: Player, aimDirX: number, aimDirY: number): { x: number; y: number } {
+  const holdDist = 22; // distance from player center to bomb hold point
+  const len = Math.sqrt(aimDirX * aimDirX + aimDirY * aimDirY);
+  const dx = len > 0.01 ? aimDirX / len : 0;
+  const dy = len > 0.01 ? aimDirY / len : -1;
+  return {
+    x: player.x + dx * holdDist,
+    y: player.y + dy * holdDist,
+  };
+}
+
 export function renderPlayer(
   pass: GPURenderPassEncoder,
   data: PlayerRenderData,
@@ -412,6 +469,8 @@ export function renderPlayer(
   chargingSpirit?: boolean,
   cameraX = 0,
   cameraY = 0,
+  aimDirX = 0,
+  aimDirY = -1,
 ) {
   if (player.dead) return;
 
@@ -422,7 +481,7 @@ export function renderPlayer(
   const cx = player.x + cameraX;
   const cy = player.y + cameraY;
 
-  const skel = getPose(player, time, chargingSpirit);
+  const skel = getPose(player, time, chargingSpirit, aimDirX, aimDirY);
 
   const bodyColor: Color = [0.95, 0.95, 0.95];
   const jointColor: Color = [0.7, 0.8, 0.9];

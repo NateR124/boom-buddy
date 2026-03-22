@@ -4,6 +4,10 @@ import { CavePlan, isInsidePath, expandPlan } from './cavePlan';
 /** World grid row where the surface (grass) begins. */
 export const SURFACE_ROW = 80;
 
+/** Solid barrier to force first bomb use */
+const BARRIER_START = SURFACE_ROW + 8;
+const BARRIER_THICKNESS = 6;
+
 function hash2(x: number, y: number): number {
   let n = x * 73 + y * 157 + 37;
   n = ((n ^ (n >>> 8)) * 2654435761) >>> 0;
@@ -60,6 +64,12 @@ export function generateRows(grid: TerrainGrid, startWorldGy: number, count: num
       // Indestructible walls on left and right edges
       if (gx < wt || gx >= GRID_W - wt) {
         grid.cells[rowOffset + gx] = Material.WALL;
+        continue;
+      }
+
+      // Solid barrier near surface — forces player to bomb through
+      if (worldGy >= BARRIER_START && worldGy < BARRIER_START + BARRIER_THICKNESS) {
+        grid.cells[rowOffset + gx] = Material.DIRT;
         continue;
       }
 

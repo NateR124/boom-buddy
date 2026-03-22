@@ -3,6 +3,7 @@ export interface CaveConfig {
   wallThickness: number;
   minPathLength: number;
   maxPathLength: number;
+  maxActivePaths: number;
   branchCheckInterval: number;
   branchChance: number;
   trunkBaseWidth: number;
@@ -28,6 +29,7 @@ export function createDefaultConfig(): CaveConfig {
     wallThickness: 5,
     minPathLength: 80,
     maxPathLength: 300,
+    maxActivePaths: 4,
     branchCheckInterval: 60,
     branchChance: 0.45,
     trunkBaseWidth: 45,

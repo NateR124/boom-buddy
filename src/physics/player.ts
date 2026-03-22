@@ -28,6 +28,9 @@ export interface Player {
   jumpBufferTimer: number;
   jumpHeld: boolean;
   jumpCutoff: boolean; // true if player released jump early (cut short)
+  // Fast drop
+  fastDropTimer: number; // how long S held in air
+  fastDropping: boolean;
   // Respawn
   dead: boolean;
   respawnTimer: number;
@@ -50,6 +53,9 @@ const JUMP_CUT_MULTIPLIER = 0.5; // multiply vy when jump released early
 const COYOTE_TIME = 0.1; // seconds (~6 frames at 60fps)
 const JUMP_BUFFER_TIME = 0.133; // ~8 frames — generous buffer
 const TERMINAL_VELOCITY = 400;
+const FAST_DROP_TERMINAL = 900;
+const FAST_DROP_DELAY = 0.25;    // seconds of holding S before fast drop kicks in
+const FAST_DROP_GRAVITY_MULT = 2.5;
 const RESPAWN_DELAY = 0.5;
 const INVULN_TIME = 1.0;
 
@@ -64,6 +70,8 @@ export function createPlayer(x: number, y: number): Player {
     jumpBufferTimer: 0,
     jumpHeld: false,
     jumpCutoff: false,
+    fastDropTimer: 0,
+    fastDropping: false,
     dead: false,
     respawnTimer: 0,
     invulnTimer: 0,
@@ -77,7 +85,7 @@ export function createPlayer(x: number, y: number): Player {
  */
 export function updatePlayer(
   player: Player, input: InputState, world: World, terrain: TerrainGrid,
-  dt: number, cameraScrollY: number,
+  dt: number, cameraScrollY: number, maxCameraScrollY = cameraScrollY,
 ) {
   // Handle respawn timer
   if (player.dead) {
@@ -153,13 +161,27 @@ export function updatePlayer(
     player.jumpCutoff = true;
   }
 
+  // Fast drop: hold S in air for 0.5s to enter fast drop
+  if (!player.grounded && input.down) {
+    player.fastDropTimer += dt;
+    if (player.fastDropTimer >= FAST_DROP_DELAY) {
+      player.fastDropping = true;
+    }
+  } else {
+    player.fastDropTimer = 0;
+    player.fastDropping = false;
+  }
+
   // Gravity — reduce near apex for hang time feel
   let grav = GRAVITY;
-  if (!player.grounded && Math.abs(player.vy) < APEX_VY_THRESHOLD) {
+  if (player.fastDropping) {
+    grav *= FAST_DROP_GRAVITY_MULT;
+  } else if (!player.grounded && Math.abs(player.vy) < APEX_VY_THRESHOLD) {
     grav *= APEX_GRAVITY_MULT;
   }
   player.vy += grav * dt;
-  if (player.vy > TERMINAL_VELOCITY) player.vy = TERMINAL_VELOCITY;
+  const termVel = player.fastDropping ? FAST_DROP_TERMINAL : TERMINAL_VELOCITY;
+  if (player.vy > termVel) player.vy = termVel;
 
   // Apply velocity
   player.x += player.vx * dt;
@@ -184,12 +206,17 @@ export function updatePlayer(
     player.jumpCutoff = false;
   }
 
-  // Dynamic kill zone: side walls + rising ceiling (no bottom — infinite descent)
-  if (player.x < -50 || player.x > world.width + 50) {
-    killPlayer(player);
+  // Clamp to world bounds — prevent knockback through walls
+  const halfW = player.w / 2;
+  if (player.x < halfW) {
+    player.x = halfW;
+    if (player.vx < 0) player.vx = 0;
+  } else if (player.x > world.width - halfW) {
+    player.x = world.width - halfW;
+    if (player.vx > 0) player.vx = 0;
   }
-  // Solid ceiling: block player at the top of the camera view
-  const ceilingY = cameraScrollY + player.h / 2;
+  // Solid ceiling: 2 screens above the furthest point reached
+  const ceilingY = maxCameraScrollY - world.height * 2 + player.h / 2;
   if (player.y < ceilingY) {
     player.y = ceilingY;
     if (player.vy < 0) player.vy = 0;

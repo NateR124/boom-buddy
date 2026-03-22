@@ -3,8 +3,10 @@
  */
 
 export interface Camera {
-  /** World-space Y pixel at the top of the screen. Only increases. */
+  /** World-space Y pixel at the top of the screen. */
   scrollY: number;
+  /** Furthest down the camera has ever scrolled (for ceiling calc). */
+  maxScrollY: number;
   shakeX: number;
   shakeY: number;
   shakeIntensity: number;
@@ -13,18 +15,18 @@ export interface Camera {
 }
 
 export function createCamera(): Camera {
-  return { scrollY: 0, shakeX: 0, shakeY: 0, shakeIntensity: 0, shakeDuration: 0, shakeTimer: 0 };
+  return { scrollY: 0, maxScrollY: 0, shakeX: 0, shakeY: 0, shakeIntensity: 0, shakeDuration: 0, shakeTimer: 0 };
 }
 
 /**
- * Smoothly scroll the camera down to follow the player.
- * One-way: scrollY never decreases.
+ * Smoothly scroll the camera to follow the player in both directions.
+ * Tracks maxScrollY for ceiling calculation.
  */
 export function updateCameraScroll(cam: Camera, playerY: number, screenH: number, dt: number): void {
-  // Keep player in the upper 40% of the screen
   const target = playerY - screenH * 0.35;
-  if (target > cam.scrollY) {
-    cam.scrollY += (target - cam.scrollY) * Math.min(1, 5 * dt);
+  cam.scrollY += (target - cam.scrollY) * Math.min(1, 5 * dt);
+  if (cam.scrollY > cam.maxScrollY) {
+    cam.maxScrollY = cam.scrollY;
   }
 }
 

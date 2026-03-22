@@ -84,31 +84,45 @@
 </head>
 <body>
   <div id="game-wrapper">
-  <canvas id="game-canvas" width="960" height="540"></canvas>
+  <canvas id="game-canvas"></canvas>
   <div id="fallback">
     <p>WebGPU is not supported in this browser.</p>
     <p>Try Chrome 113+ or Edge 113+.</p>
+  </div>
+  <div id="esc-hint" style="position:absolute;top:12px;left:12px;pointer-events:none;z-index:10;">
+    <div class="key-hint" data-key="Escape">ESC</div>
   </div>
   <div id="key-hints">
     <div class="key-row">
       <div class="key-hint" data-key="KeyA">A</div>
     </div>
     <div class="key-row">
-      <div class="key-hint" data-key="KeyW">W</div>
+      <div class="key-hint wide" data-key="Space">SPACE</div>
     </div>
     <div class="key-row">
       <div class="key-hint" data-key="KeyD">D</div>
     </div>
     <div class="key-row" style="margin-left: 10px;">
-      <div class="key-hint wide" data-key="Space">SPACE</div>
+      <div class="key-hint" data-key="mouse" id="mouse-hint" style="width:30px;height:44px;position:relative;padding:0;">
+        <svg viewBox="0 0 30 44" width="30" height="44" style="display:block;">
+          <!-- Mouse body -->
+          <rect x="3" y="8" width="24" height="32" rx="10" ry="10" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.5"/>
+          <!-- Divider -->
+          <line x1="15" y1="8" x2="15" y2="22" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <!-- Left button highlight -->
+          <path d="M3,18 Q3,8 15,8 L15,22 L3,22 Z" fill="rgba(255,255,255,0.25)" rx="5"/>
+        </svg>
+      </div>
     </div>
-  </div>
-  <div id="esc-hint" style="position:absolute;top:12px;right:12px;pointer-events:none;z-index:10;">
-    <div class="key-hint" data-key="Escape">ESC</div>
   </div>
   </div>
   <script>
     (function() {
+      // Disable right-click on game area
+      document.getElementById('game-wrapper').addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+      });
+
       var hints = document.querySelectorAll('.key-hint');
       var map = {};
       hints.forEach(function(el) { map[el.dataset.key] = el; });
@@ -116,6 +130,14 @@
         var el = map[e.code];
         if (el && !el.classList.contains('used')) {
           el.classList.add('used');
+        }
+      });
+      window.addEventListener('mousedown', function(e) {
+        if (e.button === 0) {
+          var el = document.getElementById('mouse-hint');
+          if (el && !el.classList.contains('used')) {
+            el.classList.add('used');
+          }
         }
       });
       // Expose a function for the game to call when player drops 100 units

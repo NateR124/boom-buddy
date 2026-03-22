@@ -52,7 +52,7 @@ export function spawnItemsForRows(
     if (x < 0) continue;
 
     const rarity = rollRarity(rng, config);
-    const id = rarityToItem(rarity);
+    const id = rarityToItem(rarity, rng);
 
     spawner.items.push({
       id,
@@ -84,10 +84,10 @@ function rollRarity(rng: RNG, config: ItemConfig): Rarity {
   return 'legendary';
 }
 
-function rarityToItem(rarity: Rarity): ItemId {
+function rarityToItem(rarity: Rarity, rng: RNG): ItemId {
   switch (rarity) {
     case 'common': return 'purple_ball';
-    case 'uncommon': return 'wind_ball';
+    case 'uncommon': return nextFloat(rng) < 0.5 ? 'wind_ball' : 'white_ball';
     case 'rare': return 'gold_ball';
     case 'legendary': return 'smiley_face';
   }

@@ -7,8 +7,8 @@ export interface BombConfig {
 
 export function createDefaultBombConfig(): BombConfig {
   return {
-    chargeSpeed: 3000,
-    chargeAcceleration: 800,
+    chargeSpeed: 2000,
+    chargeAcceleration: 500,
     fallSpeed: 500,
     fallSpeedSizeDebuff: 1.5,
   };

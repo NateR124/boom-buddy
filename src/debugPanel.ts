@@ -73,6 +73,7 @@ const CATEGORIES: Category[] = [
         params: [
           cave('minPathLength', 'Min Length', 20, 500, 10),
           cave('maxPathLength', 'Max Length', 50, 800, 10),
+          cave('maxActivePaths', 'Max Active Paths', 1, 10, 1),
           cave('trunkBaseWidth', 'Trunk Width', 8, 60, 1),
           cave('driftAmplitude', 'Drift Amplitude', 0, 150, 5),
         ],
@@ -175,7 +176,7 @@ const CATEGORIES: Category[] = [
       item('uncommonChance', 'Uncommon %', 0, 1, 0.05),
       item('rareChance', 'Rare %', 0, 1, 0.05),
       item('legendaryChance', 'Legendary %', 0, 1, 0.05),
-      item('purpleBallDensityRate', 'Purple Density/s', 0, 5, 0.1),
+      item('purpleBallMaxChargeBonus', 'Purple Max Charge+', 0, 2, 0.05),
       item('windBallModifier', 'Wind Modifier', 0, 2, 0.05),
       item('goldBallRadius', 'Gold Radius/stack', 5, 200, 5),
       item('goldBallSpeed', 'Gold Pull Speed/stack', 5, 200, 5),
@@ -192,7 +193,8 @@ const CATEGORIES: Category[] = [
       enemy('minPerSpawn', 'Min Per Spawn', 0, 5, 1),
       enemy('maxPerSpawn', 'Max Per Spawn', 1, 10, 1),
       enemy('batSpeed', 'Bat Speed', 10, 200, 5),
-      enemy('batHp', 'Bat HP', 1, 10, 1),
+      enemy('batBaseHp', 'Bat Base HP', 1, 50, 1),
+      enemy('batHpPerDepth', 'HP Per Depth', 0, 5, 0.1),
     ],
   },
 ];

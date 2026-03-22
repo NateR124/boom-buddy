@@ -1,6 +1,5 @@
-export const GRID_W = 480;
-export const GRID_H = 540; // ~2 screens tall: buffer above + visible + buffer below
-export const CELL_SCALE = 2; // each grid cell = 2x2 screen pixels
+import { GRID_W, GRID_H, CELL_SCALE } from '../gameConfig';
+export { GRID_W, GRID_H, CELL_SCALE };
 
 export const enum Material {
   AIR = 0,

@@ -5,7 +5,8 @@ export interface EnemyConfig {
   minPerSpawn: number;      // minimum enemies per successful spawn
   maxPerSpawn: number;      // maximum enemies per successful spawn
   batSpeed: number;         // pixels per second
-  batHp: number;            // hit points (1 = dies to any bomb hit)
+  batBaseHp: number;         // base hit points at surface
+  batHpPerDepth: number;     // extra HP per depth level
 }
 
 export function createDefaultEnemyConfig(): EnemyConfig {
@@ -16,6 +17,7 @@ export function createDefaultEnemyConfig(): EnemyConfig {
     minPerSpawn: 1,
     maxPerSpawn: 3,
     batSpeed: 40,
-    batHp: 1,
+    batBaseHp: 5,
+    batHpPerDepth: 0.5,
   };
 }
