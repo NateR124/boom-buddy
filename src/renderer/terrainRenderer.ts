@@ -12,6 +12,12 @@ export interface TerrainRenderData {
 // 4 cells packed per u32
 const GRID_BUFFER_SIZE = Math.ceil((GRID_W * GRID_H) / 4) * 4;
 
+// Pre-allocated buffers reused every frame (zero GC)
+const packed = new Uint32Array(GRID_BUFFER_SIZE / 4);
+const unifBuf = new ArrayBuffer(96);
+const unifF32 = new Float32Array(unifBuf);
+const unifU32 = new Uint32Array(unifBuf);
+
 export function createTerrainRenderer(gpu: GpuContext): TerrainRenderData {
   const { device, format } = gpu;
 
@@ -76,8 +82,7 @@ export function uploadTerrainGrid(
   worldYOffset = 0,
   biomeColors?: { cave: number[]; dirtLight: number[]; dirtDark: number[] },
 ) {
-  // Pack cells: 4 bytes per u32
-  const packed = new Uint32Array(GRID_BUFFER_SIZE / 4);
+  // Pack cells: 4 bytes per u32 (reuses module-level packed buffer)
   const cells = grid.cells;
   const totalCells = grid.width * grid.height;
   for (let i = 0; i < totalCells; i += 4) {
@@ -89,25 +94,21 @@ export function uploadTerrainGrid(
   }
   device.queue.writeBuffer(data.gridBuffer, 0, packed.buffer);
 
-  const unifBuf = new ArrayBuffer(96);
-  const f32 = new Float32Array(unifBuf);
-  const u32 = new Uint32Array(unifBuf);
-  f32[0] = canvasW;
-  f32[1] = canvasH;
-  u32[2] = grid.width;
-  u32[3] = grid.height;
-  f32[4] = time;
-  f32[5] = cameraX;
-  f32[6] = cameraY;
-  f32[7] = dayPhase;
-  f32[8] = regenTimer;
-  u32[9] = worldYOffset;
-  // f32[10], f32[11] = pad
-  // Biome colors (vec3f + pad each, starting at offset 48)
+  // Reuse module-level uniform buffer
+  unifF32[0] = canvasW;
+  unifF32[1] = canvasH;
+  unifU32[2] = grid.width;
+  unifU32[3] = grid.height;
+  unifF32[4] = time;
+  unifF32[5] = cameraX;
+  unifF32[6] = cameraY;
+  unifF32[7] = dayPhase;
+  unifF32[8] = regenTimer;
+  unifU32[9] = worldYOffset;
   const bc = biomeColors ?? { cave: [0.02, 0.02, 0.04], dirtLight: [0.50, 0.35, 0.16], dirtDark: [0.28, 0.18, 0.07] };
-  f32[12] = bc.cave[0]; f32[13] = bc.cave[1]; f32[14] = bc.cave[2];
-  f32[16] = bc.dirtLight[0]; f32[17] = bc.dirtLight[1]; f32[18] = bc.dirtLight[2];
-  f32[20] = bc.dirtDark[0]; f32[21] = bc.dirtDark[1]; f32[22] = bc.dirtDark[2];
+  unifF32[12] = bc.cave[0]; unifF32[13] = bc.cave[1]; unifF32[14] = bc.cave[2];
+  unifF32[16] = bc.dirtLight[0]; unifF32[17] = bc.dirtLight[1]; unifF32[18] = bc.dirtLight[2];
+  unifF32[20] = bc.dirtDark[0]; unifF32[21] = bc.dirtDark[1]; unifF32[22] = bc.dirtDark[2];
   device.queue.writeBuffer(data.uniformBuffer, 0, unifBuf);
 }
 

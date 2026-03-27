@@ -447,11 +447,15 @@ async function main() {
 
       updateShake(camera, dt);
 
-      // Age blast rings
-      for (let i = blastRings.length - 1; i >= 0; i--) {
+      // Age blast rings (swap-remove instead of splice)
+      let brLen = blastRings.length;
+      for (let i = brLen - 1; i >= 0; i--) {
         blastRings[i].age += dt;
-        if (blastRings[i].age >= 0.5) blastRings.splice(i, 1);
+        if (blastRings[i].age >= 0.5) {
+          blastRings[i] = blastRings[--brLen];
+        }
       }
+      blastRings.length = brLen;
 
       // Gold Ball magnetism: pull nearby items toward the player
       const goldStacks = getStacks(inventory, 'gold_ball');
@@ -485,9 +489,14 @@ async function main() {
       }
       cleanupItems(itemSpawner, camera.scrollY);
 
-      for (let i = projectiles.length - 1; i >= 0; i--) {
-        if (!projectiles[i].alive) projectiles.splice(i, 1);
+      // Swap-remove dead projectiles
+      let pLen = projectiles.length;
+      for (let i = pLen - 1; i >= 0; i--) {
+        if (!projectiles[i].alive) {
+          projectiles[i] = projectiles[--pLen];
+        }
       }
+      projectiles.length = pLen;
     }
 
     function loop(now: number) {
@@ -682,8 +691,13 @@ function updateCharge(input: InputState, player: Player, charge: ChargeState, pr
   }
 }
 
+const _particleUniformBuf = new Float32Array(4);
 function updateParticleUniforms(device: GPUDevice, ps: { uniformBuffer: GPUBuffer }, w: number, h: number, sx: number, sy: number) {
-  device.queue.writeBuffer(ps.uniformBuffer, 0, new Float32Array([w, h, sx, sy]));
+  _particleUniformBuf[0] = w;
+  _particleUniformBuf[1] = h;
+  _particleUniformBuf[2] = sx;
+  _particleUniformBuf[3] = sy;
+  device.queue.writeBuffer(ps.uniformBuffer, 0, _particleUniformBuf);
 }
 
 main();
