@@ -14,9 +14,10 @@ import { carveDigArea, getDigInterval } from './dig';
 import { createHpBar } from './hpBar';
 import { createHudState, createHudUI, createOneUpPopup, checkKillMilestone, HudState } from './hud';
 import { damagePlayer, getHealthConfig } from './physics/player';
-import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems, trySpawnDrop } from './items/itemSpawner';
+import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems } from './items/itemSpawner';
 import { createInventory, addItem, getStacks, createInventoryUI, Inventory } from './items/inventory';
 import { getItemConfig, getEnemyConfig } from './debugPanel';
+import { createDropPickupSystem, rollBatDrop } from './items/dropPickup';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
   emitRespawnBurst, emitSpiritBombOrbit, emitTerrainDebris,
@@ -202,6 +203,7 @@ async function main() {
 
     const itemSpawner = createItemSpawner();
     const inventory = createInventory();
+    const dropPickup = createDropPickupSystem();
 
     // Wire debug panel item charge buttons to inventory
     debugPanel.onItemChange((itemId, delta) => {
@@ -253,6 +255,16 @@ async function main() {
     let aimDirY = -1;
 
     function tick(input: InputState, dt: number) {
+      // Helper: roll bat drop and spawn screen-space pickup animation
+      function handleBatDrop(worldX: number, worldY: number) {
+        const id = rollBatDrop(worldX, worldY, getItemConfig());
+        if (id) {
+          const screenX = worldX + camera.shakeX;
+          const screenY = worldY - camera.scrollY + camera.shakeY;
+          dropPickup.spawn(id, screenX, screenY);
+        }
+      }
+
       // Win sequence
       const wasPlaying = winState.phase === 'playing';
       checkWinTrigger(winState, depthCounter.getDepth());
@@ -343,7 +355,7 @@ async function main() {
         if (wr > 2) {
           const windDmg = damageEnemiesInRadius(enemySys, wbc.x, wbc.y, wr, 4, '#ffcc66');
           for (const pos of windDmg.killedPositions) {
-            trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+            handleBatDrop(pos.x, pos.y);
           }
         }
       }
@@ -413,7 +425,7 @@ async function main() {
         const bombColor = getBombDmgColor(proj.purpleOvercharge * 5);
         const explResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR, explosionDmg, bombColor);
         for (const pos of explResult.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
       }
 
@@ -429,7 +441,7 @@ async function main() {
         const contactColor = getBombDmgColor(proj.purpleOvercharge * 5);
         const contactResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius, contactDmg, contactColor);
         for (const pos of contactResult.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
         if (contactResult.hit > 0) {
           detonateProj(proj);
@@ -445,7 +457,7 @@ async function main() {
       if (enemyCollision.hits > 0) {
         damagePlayer(player, enemyCollision.hits * 10);
         for (const pos of enemyCollision.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
       }
 
@@ -622,6 +634,15 @@ async function main() {
       hpBar.update(player, sx, sy);
       inventoryUI.update(inventory);
       depthCounter.update(player.y);
+
+      // Animate screen-space bat drop pickups toward player
+      const playerScreenX = player.x + sx;
+      const playerScreenY = player.y + sy;
+      dropPickup.update(
+        frameTime, playerScreenX, playerScreenY,
+        inventory, hudState,
+        (x, y) => oneUpPopup.show(x, y),
+      );
 
       // Update HUD state
       hudState.depth = depthCounter.getDepth();
