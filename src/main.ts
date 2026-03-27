@@ -36,6 +36,7 @@ import {
   checkEnemyPlayerCollision, cleanupEnemies,
 } from './enemies/enemySystem';
 import { CANVAS_W, CANVAS_H } from './gameConfig';
+import { createPerfStats } from './perfStats';
 import { createDepthCounter } from './depthCounter';
 // HUD is imported above (hud.ts)
 import { getBiomeColors } from './biomeColors';
@@ -81,6 +82,7 @@ async function main() {
   const inventoryUI = createInventoryUI();
   const hudUI = createHudUI();
   const oneUpPopup = createOneUpPopup();
+  const perfStats = createPerfStats();
 
   // Pause overlay
   const pauseOverlay = document.createElement('div');
@@ -228,6 +230,10 @@ async function main() {
       terrain.worldYOffset = Math.max(0, targetGy - Math.floor(GRID_H / 2));
       terrain.cells.fill(0);
       generateRows(terrain, terrain.worldYOffset, GRID_H, cavePlan);
+      // Sync enemy spawner so we don't dump every bat from 0 to target depth
+      enemySys.lastSpawnDepth = camera.scrollY;
+      enemySys.enemies.length = 0;
+      enemySys.damageNumbers.length = 0;
     });
 
     const cursor = { value: 0 };
@@ -626,6 +632,15 @@ async function main() {
       }
       hudUI.update(hudState);
       winOverlay.update(winState);
+
+      // Performance stats (toggle with F3)
+      perfStats.update({
+        enemies: enemySys.enemies.length,
+        projectiles: projectiles.length,
+        damageNumbers: enemySys.damageNumbers.length,
+        items: itemSpawner.items.filter(i => i.alive).length,
+        vertOverflow: vertOverflow === true,
+      });
 
       animFrameId = requestAnimationFrame(loop);
     }

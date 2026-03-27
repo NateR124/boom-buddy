@@ -47,6 +47,11 @@ function getEnemyHp(scrollY: number, config: EnemyConfig): number {
 /**
  * Spawn new bats based on player descent.
  */
+// Safety cap: max spawn checks per call. Prevents lag spikes or edge cases
+// from dumping hundreds of bats in a single frame. Normal gameplay advances
+// a few pixels per frame, so this never triggers during regular play.
+const MAX_SPAWN_CHECKS = 40;
+
 export function spawnEnemies(
   sys: EnemySystem,
   scrollY: number,
@@ -54,8 +59,10 @@ export function spawnEnemies(
   canvasHeight: number,
   config: EnemyConfig,
 ): void {
-  while (scrollY - sys.lastSpawnDepth >= config.spawnInterval) {
+  let checks = 0;
+  while (scrollY - sys.lastSpawnDepth >= config.spawnInterval && checks < MAX_SPAWN_CHECKS) {
     sys.lastSpawnDepth += config.spawnInterval;
+    checks++;
 
     const depth = sys.lastSpawnDepth;
     const chance = Math.min(config.baseSpawnChance + (depth / 1000) * config.depthChanceBonus, 0.95);
@@ -74,6 +81,10 @@ export function spawnEnemies(
 
       sys.enemies.push({ x, y, vx: 0, vy: 0, alive: true, fromLeft, hp, maxHp: hp });
     }
+  }
+  // If we hit the cap, fast-forward to avoid repeating the burst next frame
+  if (checks >= MAX_SPAWN_CHECKS && scrollY - sys.lastSpawnDepth >= config.spawnInterval) {
+    sys.lastSpawnDepth = scrollY;
   }
 }
 
