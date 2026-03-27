@@ -32,6 +32,7 @@ export function createInventoryUI(): InventoryUI {
       display: flex;
       gap: 6px;
       pointer-events: none;
+      user-select: none;
       z-index: 10;
     }
     .inv-slot {

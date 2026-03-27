@@ -176,9 +176,12 @@ export function createWinOverlay(): WinOverlay {
 
 // ===== Boss statue rendering data =====
 
+/** Vertex push callback: writes 6 floats (x, y, r, g, b, a) per vertex */
+export type VertexPush = (x: number, y: number, r: number, g: number, b: number, a: number) => void;
+
 /** Draw the golden bat statue. Call from projectile renderer. */
 export function drawBossStatue(
-  verts: number[],
+  v6: VertexPush,
   cameraX: number, cameraY: number,
   time: number,
 ): void {
@@ -187,52 +190,49 @@ export function drawBossStatue(
   const cy = (floorY - 80) + cameraY; // statue sits above the floor
 
   // Giant body
-  drawStatueCircle(verts, cx, cy, 40, 16, [0.75, 0.6, 0.15, 0.9]);
+  drawStatueCircle(v6, cx, cy, 40, 16, 0.75, 0.6, 0.15, 0.9);
 
   // Wings — huge, static
   const wingW = 120;
-  const wc: [number, number, number, number] = [0.65, 0.5, 0.1, 0.8];
   // Left wing
-  verts.push(cx - 20, cy - 10, wc[0], wc[1], wc[2], wc[3]);
-  verts.push(cx - 20 - wingW, cy - 50, wc[0], wc[1], wc[2], wc[3]);
-  verts.push(cx - 20, cy + 20, wc[0], wc[1], wc[2], wc[3]);
+  v6(cx - 20, cy - 10, 0.65, 0.5, 0.1, 0.8);
+  v6(cx - 20 - wingW, cy - 50, 0.65, 0.5, 0.1, 0.8);
+  v6(cx - 20, cy + 20, 0.65, 0.5, 0.1, 0.8);
   // Right wing
-  verts.push(cx + 20, cy - 10, wc[0], wc[1], wc[2], wc[3]);
-  verts.push(cx + 20 + wingW, cy - 50, wc[0], wc[1], wc[2], wc[3]);
-  verts.push(cx + 20, cy + 20, wc[0], wc[1], wc[2], wc[3]);
+  v6(cx + 20, cy - 10, 0.65, 0.5, 0.1, 0.8);
+  v6(cx + 20 + wingW, cy - 50, 0.65, 0.5, 0.1, 0.8);
+  v6(cx + 20, cy + 20, 0.65, 0.5, 0.1, 0.8);
 
   // Ears
-  const earC: [number, number, number, number] = [0.7, 0.55, 0.12, 0.85];
-  verts.push(cx - 15, cy - 35, earC[0], earC[1], earC[2], earC[3]);
-  verts.push(cx - 25, cy - 65, earC[0], earC[1], earC[2], earC[3]);
-  verts.push(cx - 5, cy - 35, earC[0], earC[1], earC[2], earC[3]);
-  verts.push(cx + 15, cy - 35, earC[0], earC[1], earC[2], earC[3]);
-  verts.push(cx + 25, cy - 65, earC[0], earC[1], earC[2], earC[3]);
-  verts.push(cx + 5, cy - 35, earC[0], earC[1], earC[2], earC[3]);
+  v6(cx - 15, cy - 35, 0.7, 0.55, 0.12, 0.85);
+  v6(cx - 25, cy - 65, 0.7, 0.55, 0.12, 0.85);
+  v6(cx - 5, cy - 35, 0.7, 0.55, 0.12, 0.85);
+  v6(cx + 15, cy - 35, 0.7, 0.55, 0.12, 0.85);
+  v6(cx + 25, cy - 65, 0.7, 0.55, 0.12, 0.85);
+  v6(cx + 5, cy - 35, 0.7, 0.55, 0.12, 0.85);
 
   // Glowing eyes
   const eyePulse = 0.7 + 0.3 * Math.sin(time * 2);
-  drawStatueCircle(verts, cx - 14, cy - 10, 6, 8, [1.0, 0.85, 0.2, eyePulse]);
-  drawStatueCircle(verts, cx + 14, cy - 10, 6, 8, [1.0, 0.85, 0.2, eyePulse]);
+  drawStatueCircle(v6, cx - 14, cy - 10, 6, 8, 1.0, 0.85, 0.2, eyePulse);
+  drawStatueCircle(v6, cx + 14, cy - 10, 6, 8, 1.0, 0.85, 0.2, eyePulse);
   // Eye glow halos
-  drawStatueCircle(verts, cx - 14, cy - 10, 12, 10, [1.0, 0.9, 0.3, eyePulse * 0.2]);
-  drawStatueCircle(verts, cx + 14, cy - 10, 12, 10, [1.0, 0.9, 0.3, eyePulse * 0.2]);
+  drawStatueCircle(v6, cx - 14, cy - 10, 12, 10, 1.0, 0.9, 0.3, eyePulse * 0.2);
+  drawStatueCircle(v6, cx + 14, cy - 10, 12, 10, 1.0, 0.9, 0.3, eyePulse * 0.2);
 
   // Mouth (where the spirit bomb charges)
-  drawStatueCircle(verts, cx, cy + 15, 8, 8, [0.3, 0.2, 0.05, 0.9]);
+  drawStatueCircle(v6, cx, cy + 15, 8, 8, 0.3, 0.2, 0.05, 0.9);
 }
 
 function drawStatueCircle(
-  verts: number[], cx: number, cy: number, r: number, segs: number,
-  color: [number, number, number, number],
+  v6: VertexPush, cx: number, cy: number, r: number, segs: number,
+  cr: number, cg: number, cb: number, ca: number,
 ) {
-  const [cr, cg, cb, ca] = color;
   for (let i = 0; i < segs; i++) {
     const a1 = (i / segs) * Math.PI * 2;
     const a2 = ((i + 1) / segs) * Math.PI * 2;
-    verts.push(cx, cy, cr, cg, cb, ca);
-    verts.push(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, cr, cg, cb, ca);
-    verts.push(cx + Math.cos(a2) * r, cy + Math.sin(a2) * r, cr, cg, cb, ca);
+    v6(cx, cy, cr, cg, cb, ca);
+    v6(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, cr, cg, cb, ca);
+    v6(cx + Math.cos(a2) * r, cy + Math.sin(a2) * r, cr, cg, cb, ca);
   }
 }
 
