@@ -331,8 +331,12 @@ async function main() {
 
       updateCharge(input, player, charge, projectiles, dt, inventory, terrain, camera.scrollY, aimDirX, aimDirY);
 
-      // Passive dig: charging bomb slowly carves terrain in aim direction
-      if (charge.charging) {
+      // Passive dig: charging bomb slowly carves terrain in aim direction,
+      // but only if the player is holding a movement key aligned with aim.
+      const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      const moveY = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+      const movingInAimDir = moveX * aimDirX + moveY * aimDirY > 0.1;
+      if (charge.charging && movingInAimDir) {
         const glowStacks = getStacks(inventory, 'wind_ball');
         const digInt = getDigInterval(glowStacks);
         digTimer += dt;

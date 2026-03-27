@@ -21,7 +21,7 @@ export function createPerfStats(): PerfStats {
   el.id = 'perf-stats';
   el.style.cssText = [
     'position:absolute',
-    'bottom:4px',
+    'bottom:36px',
     'right:4px',
     'font-family:monospace',
     'font-size:10px',
