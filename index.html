@@ -51,6 +51,8 @@
       gap: 6px;
       align-items: end;
       pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
       z-index: 10;
     }
     .key-hint {
@@ -89,7 +91,7 @@
     <p>WebGPU is not supported in this browser.</p>
     <p>Try Chrome 113+ or Edge 113+.</p>
   </div>
-  <div id="esc-hint" style="position:absolute;top:12px;left:12px;pointer-events:none;z-index:10;">
+  <div id="esc-hint" style="position:absolute;top:12px;left:12px;pointer-events:none;user-select:none;-webkit-user-select:none;z-index:10;">
     <div class="key-hint" data-key="Escape">ESC</div>
   </div>
   <div id="key-hints">
@@ -118,8 +120,8 @@
   </div>
   <script>
     (function() {
-      // Disable right-click on game area
-      document.getElementById('game-wrapper').addEventListener('contextmenu', function(e) {
+      // Disable right-click everywhere
+      document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
       });
 

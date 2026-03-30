@@ -254,6 +254,8 @@ export function createDebugPanel(): DebugPanel {
       padding: 8px;
       scrollbar-width: thin;
       scrollbar-color: #444 transparent;
+      user-select: none;
+      -webkit-user-select: none;
     }
     #debug-panel::-webkit-scrollbar { width: 4px; }
     #debug-panel::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }

@@ -29,6 +29,8 @@ export function createHudUI(): HudUI {
       font-size: 14px;
       font-weight: bold;
       pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
       z-index: 10;
     }
     .hud-cell {
@@ -108,6 +110,8 @@ export function createOneUpPopup(): OneUpPopup {
       font-weight: bold;
       text-shadow: 0 0 8px rgba(68, 255, 68, 0.8), 1px 1px 0 #000;
       pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
       z-index: 20;
       animation: oneup-float 1.5s ease-out forwards;
     }

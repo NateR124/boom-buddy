@@ -13,6 +13,8 @@ export function createHpBar(): HpBar {
     #hp-bar-container {
       position: absolute;
       pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
       z-index: 10;
       transition: opacity 0.5s ease;
     }

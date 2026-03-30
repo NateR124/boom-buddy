@@ -84,7 +84,7 @@ async function main() {
 
   // Pause overlay
   const pauseOverlay = document.createElement('div');
-  pauseOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50';
+  pauseOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50;user-select:none;-webkit-user-select:none';
 
   const pauseStyle = document.createElement('style');
   pauseStyle.textContent = `
@@ -170,10 +170,12 @@ async function main() {
   const projRenderer = createProjectileRenderer(gpu);
 
   let animFrameId = 0;
+  let sessionId = 0;
 
   function startSession() {
     // Cancel any existing loop
     if (animFrameId) cancelAnimationFrame(animFrameId);
+    sessionId++;
 
     const config = debugPanel.getConfig();
     const world = createWorld();
@@ -193,6 +195,14 @@ async function main() {
     let hintsFaded = false;
     const winState = createWinState();
     const winOverlay = createWinOverlay();
+
+    // Reset UI state from any previous session
+    pauseOverlay.style.display = 'none';
+    // Reset key hints visibility
+    const keyHints = document.getElementById('key-hints');
+    const escHint = document.getElementById('esc-hint');
+    if (keyHints) { keyHints.style.opacity = '1'; keyHints.style.display = ''; }
+    if (escHint) { escHint.style.opacity = '1'; escHint.style.display = ''; }
 
     const terrain = createTerrainGrid();
     const cavePlan = createCavePlan(config);
@@ -313,8 +323,12 @@ async function main() {
 
       updateCharge(input, player, charge, projectiles, dt, inventory, terrain, camera.scrollY, aimDirX, aimDirY);
 
-      // Passive dig: charging bomb slowly carves terrain in aim direction
-      if (charge.charging) {
+      // Passive dig: requires charging, pressing a movement key, AND aiming in that direction
+      const digAligned =
+        (input.left && aimDirX < 0) ||
+        (input.right && aimDirX > 0) ||
+        (input.down && aimDirY > 0);
+      if (charge.charging && digAligned) {
         const glowStacks = getStacks(inventory, 'wind_ball');
         const digInt = getDigInterval(glowStacks);
         digTimer += dt;
@@ -364,14 +378,14 @@ async function main() {
 
       // Wind stacks boost blast force, radius, and knockback
       const windStacks = getStacks(inventory, 'white_ball');
-      const windMult = 0.3 + windStacks * 0.01;
+      const windMult = 1 + Math.log(1 + windStacks * 0.15);
 
       // Helper: apply explosion knockback to player + enemies
       function blastAll(ex: number, ey: number, power: number, radius: number) {
         // Blast radius has a generous minimum so player always feels it nearby
         const blastRadius = Math.max(radius * 3, radius * 2 * windMult);
-        // Power uses sqrt so big bombs don't blast disproportionately harder
-        const baseForce = (1500 + Math.sqrt(power) * 500) * windMult;
+        // Strong base, sqrt power so big bombs don't blast too hard, log wind scaling
+        const baseForce = (1000 + Math.sqrt(power) * 300) * windMult;
 
         // Player knockback
         const pdx = player.x - ex;
@@ -430,8 +444,10 @@ async function main() {
         }
       }
 
-      // Enemy spawning and movement
-      spawnEnemies(enemySys, camera.scrollY, gpu.canvas.width, gpu.canvas.height, getEnemyConfig());
+      // Enemy spawning and movement (suppress during boss room)
+      if (!winState.triggered) {
+        spawnEnemies(enemySys, camera.scrollY, gpu.canvas.width, gpu.canvas.height, getEnemyConfig());
+      }
       updateEnemies(enemySys, player.x, player.y, dt, getEnemyConfig());
 
       // Enemy-player collision (damage player)
@@ -490,7 +506,11 @@ async function main() {
       }
     }
 
+    const mySessionId = sessionId;
     function loop(now: number) {
+      // Bail if a new session has started
+      if (sessionId !== mySessionId) return;
+
       const frameTime = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
@@ -532,6 +552,7 @@ async function main() {
 
       while (accumulator >= FIXED_DT) {
         tick(input, FIXED_DT);
+        if (sessionId !== mySessionId) return; // session was reset
         accumulator -= FIXED_DT;
         gameTime += FIXED_DT;
         ticked = true;

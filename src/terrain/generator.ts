@@ -53,13 +53,13 @@ export function generateRows(grid: TerrainGrid, startWorldGy: number, count: num
 
     const rowOffset = localGy * GRID_W;
 
-    // Boss room: empty with indestructible floor
-    if (worldGy >= BOSS_ROOM_START_GY && worldGy <= BOSS_ROOM_END_GY + BOSS_FLOOR_THICKNESS) {
+    // Boss room: empty above floor, solid WALL at and below floor
+    if (worldGy >= BOSS_ROOM_START_GY) {
       for (let gx = 0; gx < GRID_W; gx++) {
-        if (gx < wt || gx >= GRID_W - wt) {
+        if (worldGy >= BOSS_ROOM_END_GY) {
+          grid.cells[rowOffset + gx] = Material.WALL; // solid floor, all the way down
+        } else if (gx < wt || gx >= GRID_W - wt) {
           grid.cells[rowOffset + gx] = Material.WALL;
-        } else if (worldGy >= BOSS_ROOM_END_GY) {
-          grid.cells[rowOffset + gx] = Material.WALL; // indestructible floor
         } else {
           grid.cells[rowOffset + gx] = Material.AIR;
         }
