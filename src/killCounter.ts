@@ -15,6 +15,7 @@ export function createKillCounter(): KillCounter {
       font-weight: bold;
       text-shadow: 0 0 4px rgba(255, 0, 0, 0.5), 1px 1px 0 #000;
       pointer-events: none;
+      user-select: none;
       z-index: 10;
     }
   `;

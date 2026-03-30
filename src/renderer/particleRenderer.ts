@@ -169,31 +169,36 @@ export function uploadParticleRange(
 /**
  * Upload attractor definitions to the GPU for this frame.
  */
-export function uploadAttractors(device: GPUDevice, ps: ParticleSystem, attractors: AttractorDef[]) {
-  const data = new Float32Array(ATTRACTOR_BUFFER_SIZE / 4);
-  // Header: count as u32
-  const countView = new Uint32Array(data.buffer, 0, 4);
-  countView[0] = Math.min(attractors.length, MAX_ATTRACTORS);
+// Pre-allocated attractor upload buffer (zero GC)
+const _attractorData = new Float32Array(ATTRACTOR_BUFFER_SIZE / 4);
+const _attractorCountView = new Uint32Array(_attractorData.buffer, 0, 4);
 
-  // Attractor data starts at float offset 4 (after 16 byte header)
+export function uploadAttractors(device: GPUDevice, ps: ParticleSystem, attractors: AttractorDef[]) {
+  _attractorData.fill(0);
+  _attractorCountView[0] = Math.min(attractors.length, MAX_ATTRACTORS);
+
   for (let i = 0; i < Math.min(attractors.length, MAX_ATTRACTORS); i++) {
     const a = attractors[i];
-    const off = 4 + i * 8; // 8 floats per attractor (including padding)
-    data[off + 0] = a.x;
-    data[off + 1] = a.y;
-    data[off + 2] = a.strength;
-    data[off + 3] = a.radius;
-    data[off + 4] = a.tangent;
-    // [5..7] = padding
+    const off = 4 + i * 8;
+    _attractorData[off + 0] = a.x;
+    _attractorData[off + 1] = a.y;
+    _attractorData[off + 2] = a.strength;
+    _attractorData[off + 3] = a.radius;
+    _attractorData[off + 4] = a.tangent;
   }
 
-  device.queue.writeBuffer(ps.attractorBuffer, 0, data);
+  device.queue.writeBuffer(ps.attractorBuffer, 0, _attractorData);
 }
 
+// Pre-allocated param upload buffers
+const _paramF32 = new Float32Array(4);
+const _paramCountU32 = new Uint32Array(1);
+
 export function updateParticlesGPU(encoder: GPUCommandEncoder, ps: ParticleSystem, device: GPUDevice, dt: number, time: number) {
-  device.queue.writeBuffer(ps.paramBuffer, 0, new Float32Array([dt, time, 400, 0]));
-  const countBuf = new Uint32Array([ps.maxParticles]);
-  device.queue.writeBuffer(ps.paramBuffer, 12, countBuf);
+  _paramF32[0] = dt; _paramF32[1] = time; _paramF32[2] = 400; _paramF32[3] = 0;
+  device.queue.writeBuffer(ps.paramBuffer, 0, _paramF32);
+  _paramCountU32[0] = ps.maxParticles;
+  device.queue.writeBuffer(ps.paramBuffer, 12, _paramCountU32);
 
   const pass = encoder.beginComputePass();
   pass.setPipeline(ps.computePipeline);

@@ -4,6 +4,7 @@ import { WorldItem } from '../items/itemSpawner';
 import { getItemDef } from '../items/itemTypes';
 import { Enemy, EnemySystem, getDamageNumberRenderData } from '../enemies/enemySystem';
 import { WinState, drawBossStatue, getBoomRadius, getStatueMouthPos } from '../winSequence';
+import { CANVAS_W, CANVAS_H } from '../gameConfig';
 
 interface ProjectileRenderData {
   pipeline: GPURenderPipeline;
@@ -12,7 +13,7 @@ interface ProjectileRenderData {
   bindGroup: GPUBindGroup;
 }
 
-const MAX_VERTS = 16384;
+const MAX_VERTS = 65536;
 
 const SHADER_CODE = /* wgsl */`
 struct Uniforms {
@@ -109,6 +110,38 @@ export function createProjectileRenderer(gpu: GpuContext): ProjectileRenderData 
   return { pipeline, vertexBuffer, uniformBuffer, bindGroup };
 }
 
+// Pre-allocated vertex buffer — reused every frame (zero GC)
+const maxFloats = MAX_VERTS * 6;
+const vertBuf = new Float32Array(maxFloats);
+let vertIdx = 0;
+
+/** Push 6 floats (one vertex) into the pre-allocated buffer */
+function v6(x: number, y: number, r: number, g: number, b: number, a: number) {
+  if (vertIdx + 6 > maxFloats) return;
+  vertBuf[vertIdx++] = x;
+  vertBuf[vertIdx++] = y;
+  vertBuf[vertIdx++] = r;
+  vertBuf[vertIdx++] = g;
+  vertBuf[vertIdx++] = b;
+  vertBuf[vertIdx++] = a;
+}
+
+/** Frustum margin — objects within this many pixels of the viewport are drawn */
+const MARGIN = 80;
+
+function onScreen(x: number, y: number, r: number): boolean {
+  return x + r > -MARGIN && x - r < CANVAS_W + MARGIN &&
+         y + r > -MARGIN && y - r < CANVAS_H + MARGIN;
+}
+
+/** Adaptive LOD: fewer segments for small circles */
+function lodSegs(r: number, baseSegs: number): number {
+  if (r < 2) return 4;
+  if (r < 5) return Math.min(baseSegs, 6);
+  if (r < 15) return Math.min(baseSegs, 10);
+  return baseSegs;
+}
+
 export function renderProjectiles(
   pass: GPURenderPassEncoder,
   data: ProjectileRenderData,
@@ -129,77 +162,76 @@ export function renderProjectiles(
   blastRings?: { x: number; y: number; maxRadius: number; age: number; strength: number }[],
   winState?: WinState,
 ) {
-  const verts: number[] = [];
+  vertIdx = 0;
 
   // Dig light glow
   if (digLight) {
     const dlx = digLight.x + cameraX;
     const dly = digLight.y + cameraY;
     const pulse = 0.7 + Math.sin(time * 15) * 0.15;
-    // Outer glow
-    drawRect(verts, dlx - digLight.w, dly - digLight.h, digLight.w * 2, digLight.h * 2, [1.0, 0.95, 0.7, 0.12 * pulse]);
-    // Main light
-    drawRect(verts, dlx - digLight.w / 2, dly - digLight.h / 2, digLight.w, digLight.h, [1.0, 0.95, 0.8, 0.5 * pulse]);
-    // Bright core
-    drawRect(verts, dlx - digLight.w / 4, dly - digLight.h / 4, digLight.w / 2, digLight.h / 2, [1.0, 1.0, 0.95, 0.85 * pulse]);
+    drawRect(dlx - digLight.w, dly - digLight.h, digLight.w * 2, digLight.h * 2, 1.0, 0.95, 0.7, 0.12 * pulse);
+    drawRect(dlx - digLight.w / 2, dly - digLight.h / 2, digLight.w, digLight.h, 1.0, 0.95, 0.8, 0.5 * pulse);
+    drawRect(dlx - digLight.w / 4, dly - digLight.h / 4, digLight.w / 2, digLight.h / 2, 1.0, 1.0, 0.95, 0.85 * pulse);
   }
 
   // Render active projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
-    drawSpiritBomb(verts, p.x + cameraX, p.y + cameraY, p.radius, time, 1.0, p.purpleOvercharge, p.windStacks);
+    const sx = p.x + cameraX, sy = p.y + cameraY;
+    if (onScreen(sx, sy, p.radius * 3)) {
+      drawSpiritBomb(sx, sy, p.radius, time, 1.0, p.purpleOvercharge, p.windStacks);
+    }
   }
 
-  // Render spirit bomb charge sphere (above player during charge)
+  // Render spirit bomb charge sphere
   if (spiritChargeRadius > 0) {
-    drawSpiritBomb(verts, spiritChargeX + cameraX, spiritChargeY + cameraY, spiritChargeRadius, time, 0.8, chargePurpleOvercharge, chargeGlowStacks);
+    drawSpiritBomb(spiritChargeX + cameraX, spiritChargeY + cameraY, spiritChargeRadius, time, 0.8, chargePurpleOvercharge, chargeGlowStacks);
   }
 
-  // Render world items
+  // Render world items (with frustum culling)
   for (const item of items) {
     if (!item.alive) continue;
+    const ix = item.x + cameraX;
+    const iy = item.y + cameraY;
+    if (!onScreen(ix, iy, 20)) continue;
     const def = getItemDef(item.id);
     const r = parseInt(def.color.slice(1, 3), 16) / 255;
     const g = parseInt(def.color.slice(3, 5), 16) / 255;
     const b = parseInt(def.color.slice(5, 7), 16) / 255;
-    const ix = item.x + cameraX;
-    const iy = item.y + cameraY;
     const bobble = Math.sin(time * 3 + item.x * 0.1) * 3;
     const pulse = 6 + Math.sin(time * 4 + item.y * 0.1) * 1.5;
-    // Outer glow
-    drawCircle(verts, ix, iy + bobble, pulse * 1.8, 10, [r, g, b, 0.15]);
-    // Main body
-    drawCircle(verts, ix, iy + bobble, pulse, 10, [r, g, b, 0.8]);
-    // Bright core
-    drawCircle(verts, ix, iy + bobble, pulse * 0.4, 8, [1, 1, 1, 0.6]);
+    drawCircle(ix, iy + bobble, pulse * 1.8, 10, r, g, b, 0.15);
+    drawCircle(ix, iy + bobble, pulse, 10, r, g, b, 0.8);
+    drawCircle(ix, iy + bobble, pulse * 0.4, 8, 1, 1, 1, 0.6);
   }
 
-  // Render enemies (bats)
+  // Render enemies (bats) with frustum culling
   const enemies = enemySys?.enemies ?? [];
   const bb = batColors ?? { batBody: [0.3, 0.1, 0.15], batWing: [0.25, 0.05, 0.1], batEye: [1.0, 0.2, 0.1] };
   for (const e of enemies) {
     if (!e.alive) continue;
     const ex = e.x + cameraX;
     const ey = e.y + cameraY;
+    if (!onScreen(ex, ey, 40)) continue;
     // Wing flap animation
     const wingPhase = Math.sin(time * 12 + e.x * 0.3) * 0.5 + 0.5;
     const wingSpan = 16 + wingPhase * 8;
     const wingDrop = wingPhase * 6;
     // Body
-    drawCircle(verts, ex, ey, 10, 8, [bb.batBody[0], bb.batBody[1], bb.batBody[2], 0.9]);
+    drawCircle(ex, ey, 10, 8, bb.batBody[0], bb.batBody[1], bb.batBody[2], 0.9);
     // Eyes
-    drawCircle(verts, ex - 4, ey - 2, 2.4, 5, [bb.batEye[0], bb.batEye[1], bb.batEye[2], 1.0]);
-    drawCircle(verts, ex + 4, ey - 2, 2.4, 5, [bb.batEye[0], bb.batEye[1], bb.batEye[2], 1.0]);
+    drawCircle(ex - 4, ey - 2, 2.4, 5, bb.batEye[0], bb.batEye[1], bb.batEye[2], 1.0);
+    drawCircle(ex + 4, ey - 2, 2.4, 5, bb.batEye[0], bb.batEye[1], bb.batEye[2], 1.0);
     // Wings (triangles)
-    const wc: [number, number, number, number] = [bb.batWing[0], bb.batWing[1], bb.batWing[2], 0.8];
+    const wr = bb.batWing[0], wg = bb.batWing[1], wb = bb.batWing[2], wa = 0.8;
     // Left wing
-    verts.push(ex - 6, ey, wc[0], wc[1], wc[2], wc[3]);
-    verts.push(ex - 6 - wingSpan, ey - 4 + wingDrop, wc[0], wc[1], wc[2], wc[3]);
-    verts.push(ex - 6, ey + 6, wc[0], wc[1], wc[2], wc[3]);
+    v6(ex - 6, ey, wr, wg, wb, wa);
+    v6(ex - 6 - wingSpan, ey - 4 + wingDrop, wr, wg, wb, wa);
+    v6(ex - 6, ey + 6, wr, wg, wb, wa);
     // Right wing
-    verts.push(ex + 6, ey, wc[0], wc[1], wc[2], wc[3]);
-    verts.push(ex + 6 + wingSpan, ey - 4 + wingDrop, wc[0], wc[1], wc[2], wc[3]);
-    verts.push(ex + 6, ey + 6, wc[0], wc[1], wc[2], wc[3]);
+    v6(ex + 6, ey, wr, wg, wb, wa);
+    v6(ex + 6 + wingSpan, ey - 4 + wingDrop, wr, wg, wb, wa);
+    v6(ex + 6, ey + 6, wr, wg, wb, wa);
 
     // HP bar (only show if damaged)
     if (e.hp < e.maxHp) {
@@ -208,12 +240,10 @@ export function renderProjectiles(
       const barY = ey - 16;
       const barX = ex - barW / 2;
       const hpPct = Math.max(0, e.hp / e.maxHp);
-      // Background (dark)
-      drawRect(verts, barX, barY, barW, barH, [0, 0, 0, 0.6]);
-      // Fill (red → green)
+      drawRect(barX, barY, barW, barH, 0, 0, 0, 0.6);
       const fr = 1 - hpPct;
       const fg = hpPct;
-      drawRect(verts, barX, barY, barW * hpPct, barH, [fr, fg, 0.1, 0.9]);
+      drawRect(barX, barY, barW * hpPct, barH, fr, fg, 0.1, 0.9);
     }
   }
 
@@ -223,97 +253,85 @@ export function renderProjectiles(
     for (const dn of dmgNums) {
       const dx = dn.x + cameraX;
       const dy = dn.y + cameraY;
-      drawNumber(verts, dx, dy, dn.amount, dn.alpha, dn.color);
+      if (onScreen(dx, dy, 30)) {
+        drawNumber(dx, dy, dn.amount, dn.alpha, dn.color);
+      }
     }
   }
 
-  // Render blast rings — white expanding ring, stronger wind = less opacity
+  // Render blast rings
   if (blastRings) {
     for (const ring of blastRings) {
-      const t = ring.age / 0.5; // 0 to 1 over 0.5 seconds
+      const t = ring.age / 0.5;
       if (t >= 1) continue;
-      // Wind strength scales size, speed (via maxRadius), and opacity toward 1
-      const s = ring.strength; // 0 = no wind, 1 = max wind
+      const s = ring.strength;
       const currentR = ring.maxRadius * t;
       const thickness = Math.max(2, ring.maxRadius * 0.08 * (1 - t));
-      // Opacity: starts low, wind pushes it closer to 1 (but never reaches)
-      const baseAlpha = 0.15 + s * 0.75; // 0.15 at 0 wind, 0.9 at max
+      const baseAlpha = 0.15 + s * 0.75;
       const alpha = baseAlpha * (1 - t);
       if (alpha > 0.01 && currentR > 1) {
-        drawRing(verts, ring.x + cameraX, ring.y + cameraY,
-          currentR - thickness / 2, currentR + thickness / 2,
-          24, [1.0, 1.0, 1.0, alpha]);
+        const rx = ring.x + cameraX, ry = ring.y + cameraY;
+        if (onScreen(rx, ry, currentR + thickness)) {
+          drawRing(rx, ry,
+            currentR - thickness / 2, currentR + thickness / 2,
+            24, 1.0, 1.0, 1.0, alpha);
+        }
       }
     }
   }
 
   // Boss statue + boom phase spirit bomb
   if (winState && winState.triggered) {
-    drawBossStatue(verts, cameraX, cameraY, time);
+    drawBossStatue(v6, cameraX, cameraY, time);
     const boomR = getBoomRadius(winState);
     if (boomR > 0) {
       const mouth = getStatueMouthPos();
-      drawSpiritBomb(verts, mouth.x + cameraX, mouth.y + cameraY, boomR, time, 1.0, 5, 10);
+      drawSpiritBomb(mouth.x + cameraX, mouth.y + cameraY, boomR, time, 1.0, 5, 10);
     }
   }
 
-  if (verts.length === 0) return false;
+  if (vertIdx === 0) return false;
 
-  // Clamp to buffer capacity (6 floats per vertex)
-  const maxFloats = MAX_VERTS * 6;
-  const overflow = verts.length > maxFloats;
-  const clampedLen = overflow ? maxFloats : verts.length;
-
-  const vertexData = new Float32Array(verts.slice(0, clampedLen));
-  device.queue.writeBuffer(data.vertexBuffer, 0, vertexData);
+  const overflow = vertIdx >= maxFloats;
+  const uploadFloats = Math.min(vertIdx, maxFloats);
+  // Upload only the portion we wrote (subarray avoids copy)
+  device.queue.writeBuffer(data.vertexBuffer, 0, vertBuf.buffer, 0, uploadFloats * 4);
 
   pass.setPipeline(data.pipeline);
   pass.setBindGroup(0, data.bindGroup);
   pass.setVertexBuffer(0, data.vertexBuffer);
-  pass.draw(clampedLen / 6);
+  pass.draw(uploadFloats / 6);
 
   return overflow;
 }
 
-function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, time: number, alpha: number, purpleOvercharge = 0, glowStacks = 0) {
+function drawSpiritBomb(x: number, y: number, radius: number, time: number, alpha: number, purpleOvercharge = 0, glowStacks = 0) {
   const pulse = 1 + Math.sin(time * 8) * 0.08;
   const r = radius * pulse;
 
-  // Tier progression: 0–1 = purple, 1–2 = lightning, 2–3 = rings, 3–4 = void, 4–5 = corona
-  const tier1 = Math.min(purpleOvercharge, 1);       // purple shift
-  const tier2 = Math.max(0, Math.min(purpleOvercharge - 1, 1)); // lightning
-  const tier3 = Math.max(0, Math.min(purpleOvercharge - 2, 1)); // rings
-  const tier4 = Math.max(0, Math.min(purpleOvercharge - 3, 1)); // void core
-  const tier5 = Math.max(0, Math.min(purpleOvercharge - 4, 1)); // corona
+  const tier1 = Math.min(purpleOvercharge, 1);
+  const tier2 = Math.max(0, Math.min(purpleOvercharge - 1, 1));
+  const tier3 = Math.max(0, Math.min(purpleOvercharge - 2, 1));
+  const tier4 = Math.max(0, Math.min(purpleOvercharge - 3, 1));
+  const tier5 = Math.max(0, Math.min(purpleOvercharge - 4, 1));
 
-  const d = tier1; // purple amount
-
-  // Glow scale
+  const d = tier1;
   const g = 0.4 + 0.6 * Math.min(glowStacks / 10, 1);
 
   // === BASE BOMB ===
-  // Bloom halo
-  drawCircle(verts, x, y, r * (1.2 + g * 0.8), 20, [
-    1.0 - d * 0.5, 0.4 - d * 0.3, 0.05 + d * 0.5, 0.08 * g * alpha,
-  ]);
-  // Outer glow
-  drawCircle(verts, x, y, r * (0.9 + g * 0.5), 16, [
-    0.7 + d * 0.3, 0.5 - d * 0.4, 0.1 + d * 0.7, 0.25 * g * alpha,
-  ]);
-  // Mid layer
-  drawCircle(verts, x, y, r, 14, [
-    0.6 - d * 0.3, 0.2 + d * 0.1, 0.8 * d + 0.2 * (1 - d), 0.55 * alpha,
-  ]);
-  // Inner bright
-  drawCircle(verts, x, y, r * 0.65, 12, [
-    1.0, 0.9 - d * 0.3, 0.5 + d * 0.5, 0.7 * alpha,
-  ]);
-  // Core
-  drawCircle(verts, x, y, r * 0.35, 10, [1.0, 0.97, 0.9, 0.95 * alpha]);
+  drawCircle(x, y, r * (1.2 + g * 0.8), 20,
+    1.0 - d * 0.5, 0.4 - d * 0.3, 0.05 + d * 0.5, 0.08 * g * alpha);
+  drawCircle(x, y, r * (0.9 + g * 0.5), 16,
+    0.7 + d * 0.3, 0.5 - d * 0.4, 0.1 + d * 0.7, 0.25 * g * alpha);
+  drawCircle(x, y, r, 14,
+    0.6 - d * 0.3, 0.2 + d * 0.1, 0.8 * d + 0.2 * (1 - d), 0.55 * alpha);
+  drawCircle(x, y, r * 0.65, 12,
+    1.0, 0.9 - d * 0.3, 0.5 + d * 0.5, 0.7 * alpha);
+  drawCircle(x, y, r * 0.35, 10, 1.0, 0.97, 0.9, 0.95 * alpha);
 
   // White outline ring (tier 1)
   if (d > 0.1) {
-    drawRing(verts, x, y, r * 0.95, r * 1.05, 20, [1.0, 1.0, 1.0, d * 0.4 * alpha]);
+    drawRing(x, y, r * 0.95, r * 1.05, 20, 1.0, 1.0, 1.0, d * 0.4 * alpha);
   }
 
   // === TIER 2: LIGHTNING ARCS ===
@@ -323,7 +341,7 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
       const baseAngle = (i / numBolts) * Math.PI * 2 + time * 6;
       const flickerSpeed = 15 + i * 7;
       const flicker = Math.sin(time * flickerSpeed + i * 31) * 0.5 + 0.5;
-      if (flicker < 0.3) continue; // bolts flicker in and out
+      if (flicker < 0.3) continue;
 
       const innerR = r * 0.6;
       const outerR = r * (1.0 + tier2 * 0.3);
@@ -341,15 +359,13 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
       const y2 = y + Math.sin(endAngle) * outerR;
 
       const boltAlpha = tier2 * flicker * 0.8 * alpha;
-      const boltColor: [number, number, number, number] = [0.7, 0.7, 1.0, boltAlpha];
-      // Draw as thin triangles (2 segments)
       const t1 = 1.2;
-      verts.push(x0 - t1, y0, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
-      verts.push(x0 + t1, y0, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
-      verts.push(x1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
-      verts.push(x1 - t1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
-      verts.push(x1 + t1, y1, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
-      verts.push(x2, y2, boltColor[0], boltColor[1], boltColor[2], boltColor[3]);
+      v6(x0 - t1, y0, 0.7, 0.7, 1.0, boltAlpha);
+      v6(x0 + t1, y0, 0.7, 0.7, 1.0, boltAlpha);
+      v6(x1, y1, 0.7, 0.7, 1.0, boltAlpha);
+      v6(x1 - t1, y1, 0.7, 0.7, 1.0, boltAlpha);
+      v6(x1 + t1, y1, 0.7, 0.7, 1.0, boltAlpha);
+      v6(x2, y2, 0.7, 0.7, 1.0, boltAlpha);
     }
   }
 
@@ -365,40 +381,35 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
       for (let i = 0; i < segs; i++) {
         const a1 = (i / segs) * Math.PI * 2;
         const a2 = ((i + 1) / segs) * Math.PI * 2;
-        // Elliptical ring with tilt
         const rx1 = x + Math.cos(a1 + ringAngle) * ringR;
         const ry1 = y + Math.sin(a1 + ringAngle) * ringR * tilt;
         const rx2 = x + Math.cos(a2 + ringAngle) * ringR;
         const ry2 = y + Math.sin(a2 + ringAngle) * ringR * tilt;
-        const rc: [number, number, number, number] = [0.8, 0.5, 1.0, ringAlpha];
-        verts.push(rx1, ry1, rc[0], rc[1], rc[2], rc[3]);
-        verts.push(rx2, ry2, rc[0], rc[1], rc[2], rc[3]);
-        verts.push(x, y, rc[0], rc[1], rc[2], 0); // transparent center for thin ring illusion
+        v6(rx1, ry1, 0.8, 0.5, 1.0, ringAlpha);
+        v6(rx2, ry2, 0.8, 0.5, 1.0, ringAlpha);
+        v6(x, y, 0.8, 0.5, 1.0, 0);
       }
     }
   }
 
   // === TIER 4: EVENT HORIZON ===
   if (tier4 > 0) {
-    // Bright churning ring around the core — "event horizon" glow
     const horizonR = r * (0.3 + tier4 * 0.15);
     const horizonThick = 2 + tier4 * 2;
-    drawRing(verts, x, y, horizonR - horizonThick / 2, horizonR + horizonThick / 2, 18,
-      [0.9, 0.5, 1.0, tier4 * 0.6 * alpha]);
-    // Bright dots rapidly orbiting the horizon
+    drawRing(x, y, horizonR - horizonThick / 2, horizonR + horizonThick / 2, 18,
+      0.9, 0.5, 1.0, tier4 * 0.6 * alpha);
     const numDots = 6 + Math.floor(tier4 * 6);
     for (let i = 0; i < numDots; i++) {
       const da = (i / numDots) * Math.PI * 2 + time * (10 + i * 2);
       const wobble = Math.sin(time * 15 + i * 7) * 3;
       const dr = horizonR + wobble;
       const dotSize = 1.0 + tier4 * 0.5;
-      drawCircle(verts, x + Math.cos(da) * dr, y + Math.sin(da) * dr,
-        dotSize, 5, [1.0, 0.9, 1.0, tier4 * 0.7 * alpha]);
+      drawCircle(x + Math.cos(da) * dr, y + Math.sin(da) * dr,
+        dotSize, 5, 1.0, 0.9, 1.0, tier4 * 0.7 * alpha);
     }
-    // Outer pulsing halo
     const haloPulse = 0.5 + 0.5 * Math.sin(time * 6);
-    drawRing(verts, x, y, r * 1.05, r * 1.05 + 1.5, 16,
-      [0.7, 0.3, 0.9, tier4 * haloPulse * 0.3 * alpha]);
+    drawRing(x, y, r * 1.05, r * 1.05 + 1.5, 16,
+      0.7, 0.3, 0.9, tier4 * haloPulse * 0.3 * alpha);
   }
 
   // === TIER 5: CORONA / RADIATING SPIKES ===
@@ -417,30 +428,25 @@ function drawSpiritBomb(verts: number[], x: number, y: number, radius: number, t
       const bx = x + Math.cos(angle) * baseR;
       const by = y + Math.sin(angle) * baseR;
       const rayAlpha = tier5 * rayPulse * 0.6 * alpha;
-      const rc: [number, number, number, number] = [1.0, 0.85, 0.4, rayAlpha];
-      // Triangle spike
-      verts.push(bx + perpX, by + perpY, rc[0], rc[1], rc[2], rc[3]);
-      verts.push(bx - perpX, by - perpY, rc[0], rc[1], rc[2], rc[3]);
-      verts.push(tipX, tipY, rc[0], rc[1], rc[2], rc[3] * 0.3);
+      v6(bx + perpX, by + perpY, 1.0, 0.85, 0.4, rayAlpha);
+      v6(bx - perpX, by - perpY, 1.0, 0.85, 0.4, rayAlpha);
+      v6(tipX, tipY, 1.0, 0.85, 0.4, rayAlpha * 0.3);
     }
   }
 }
 
-function drawRect(verts: number[], x: number, y: number, w: number, h: number, color: [number, number, number, number]) {
-  const [r, g, b, a] = color;
-  verts.push(x, y, r, g, b, a);
-  verts.push(x + w, y, r, g, b, a);
-  verts.push(x + w, y + h, r, g, b, a);
-  verts.push(x, y, r, g, b, a);
-  verts.push(x + w, y + h, r, g, b, a);
-  verts.push(x, y + h, r, g, b, a);
+function drawRect(x: number, y: number, w: number, h: number, r: number, g: number, b: number, a: number) {
+  v6(x, y, r, g, b, a);
+  v6(x + w, y, r, g, b, a);
+  v6(x + w, y + h, r, g, b, a);
+  v6(x, y, r, g, b, a);
+  v6(x + w, y + h, r, g, b, a);
+  v6(x, y + h, r, g, b, a);
 }
 
 // Simple 7-segment-style digit rendering using line segments
 const DIGIT_W = 4;
 const DIGIT_H = 6;
-// Each digit is defined by which of 7 segments are active
-// Segments: 0=top, 1=top-right, 2=bot-right, 3=bottom, 4=bot-left, 5=top-left, 6=middle
 const DIGIT_SEGS: boolean[][] = [
   [true, true, true, true, true, true, false],   // 0
   [false, true, true, false, false, false, false], // 1
@@ -454,26 +460,19 @@ const DIGIT_SEGS: boolean[][] = [
   [true, true, true, true, false, true, true],    // 9
 ];
 
-function drawDigit(verts: number[], x: number, y: number, digit: number, color: [number, number, number, number]) {
+function drawDigit(x: number, y: number, digit: number, r: number, g: number, b: number, a: number) {
   const segs = DIGIT_SEGS[digit];
   if (!segs) return;
-  const t = 0.8; // segment thickness
+  const t = 0.8;
   const w = DIGIT_W;
   const h = DIGIT_H / 2;
-  // top
-  if (segs[0]) drawRect(verts, x, y, w, t, color);
-  // top-right
-  if (segs[1]) drawRect(verts, x + w - t, y, t, h, color);
-  // bot-right
-  if (segs[2]) drawRect(verts, x + w - t, y + h, t, h, color);
-  // bottom
-  if (segs[3]) drawRect(verts, x, y + h * 2 - t, w, t, color);
-  // bot-left
-  if (segs[4]) drawRect(verts, x, y + h, t, h, color);
-  // top-left
-  if (segs[5]) drawRect(verts, x, y, t, h, color);
-  // middle
-  if (segs[6]) drawRect(verts, x, y + h - t / 2, w, t, color);
+  if (segs[0]) drawRect(x, y, w, t, r, g, b, a);
+  if (segs[1]) drawRect(x + w - t, y, t, h, r, g, b, a);
+  if (segs[2]) drawRect(x + w - t, y + h, t, h, r, g, b, a);
+  if (segs[3]) drawRect(x, y + h * 2 - t, w, t, r, g, b, a);
+  if (segs[4]) drawRect(x, y + h, t, h, r, g, b, a);
+  if (segs[5]) drawRect(x, y, t, h, r, g, b, a);
+  if (segs[6]) drawRect(x, y + h - t / 2, w, t, r, g, b, a);
 }
 
 function parseHexColor(hex: string): [number, number, number] {
@@ -485,45 +484,42 @@ function parseHexColor(hex: string): [number, number, number] {
   ];
 }
 
-function drawNumber(verts: number[], x: number, y: number, num: number, alpha: number, cssColor = '#ffe633') {
+function drawNumber(x: number, y: number, num: number, alpha: number, cssColor = '#ffe633') {
   const str = Math.round(num).toString();
   const totalW = str.length * (DIGIT_W + 1) - 1;
   let cx = x - totalW / 2;
   const [r, g, b] = parseHexColor(cssColor);
-  const color: [number, number, number, number] = [r, g, b, alpha];
   for (const ch of str) {
     const d = parseInt(ch);
     if (!isNaN(d)) {
-      drawDigit(verts, cx, y, d, color);
+      drawDigit(cx, y, d, r, g, b, alpha);
     }
     cx += DIGIT_W + 1;
   }
 }
 
-function drawRing(verts: number[], cx: number, cy: number, innerR: number, outerR: number, segs: number, color: [number, number, number, number]) {
-  const [cr, cg, cb, ca] = color;
+function drawRing(cx: number, cy: number, innerR: number, outerR: number, segs: number, cr: number, cg: number, cb: number, ca: number) {
   for (let i = 0; i < segs; i++) {
     const a1 = (i / segs) * Math.PI * 2;
     const a2 = ((i + 1) / segs) * Math.PI * 2;
     const c1 = Math.cos(a1), s1 = Math.sin(a1);
     const c2 = Math.cos(a2), s2 = Math.sin(a2);
-    // Two triangles per segment to form a quad
-    verts.push(cx + c1 * innerR, cy + s1 * innerR, cr, cg, cb, ca);
-    verts.push(cx + c1 * outerR, cy + s1 * outerR, cr, cg, cb, ca);
-    verts.push(cx + c2 * outerR, cy + s2 * outerR, cr, cg, cb, ca);
-    verts.push(cx + c1 * innerR, cy + s1 * innerR, cr, cg, cb, ca);
-    verts.push(cx + c2 * outerR, cy + s2 * outerR, cr, cg, cb, ca);
-    verts.push(cx + c2 * innerR, cy + s2 * innerR, cr, cg, cb, ca);
+    v6(cx + c1 * innerR, cy + s1 * innerR, cr, cg, cb, ca);
+    v6(cx + c1 * outerR, cy + s1 * outerR, cr, cg, cb, ca);
+    v6(cx + c2 * outerR, cy + s2 * outerR, cr, cg, cb, ca);
+    v6(cx + c1 * innerR, cy + s1 * innerR, cr, cg, cb, ca);
+    v6(cx + c2 * outerR, cy + s2 * outerR, cr, cg, cb, ca);
+    v6(cx + c2 * innerR, cy + s2 * innerR, cr, cg, cb, ca);
   }
 }
 
-function drawCircle(verts: number[], cx: number, cy: number, r: number, segs: number, color: [number, number, number, number]) {
-  const [cr, cg, cb, ca] = color;
+function drawCircle(cx: number, cy: number, r: number, baseSegs: number, cr: number, cg: number, cb: number, ca: number) {
+  const segs = lodSegs(r, baseSegs);
   for (let i = 0; i < segs; i++) {
     const a1 = (i / segs) * Math.PI * 2;
     const a2 = ((i + 1) / segs) * Math.PI * 2;
-    verts.push(cx, cy, cr, cg, cb, ca);
-    verts.push(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, cr, cg, cb, ca);
-    verts.push(cx + Math.cos(a2) * r, cy + Math.sin(a2) * r, cr, cg, cb, ca);
+    v6(cx, cy, cr, cg, cb, ca);
+    v6(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, cr, cg, cb, ca);
+    v6(cx + Math.cos(a2) * r, cy + Math.sin(a2) * r, cr, cg, cb, ca);
   }
 }

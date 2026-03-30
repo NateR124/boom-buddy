@@ -14,9 +14,10 @@ import { carveDigArea, getDigInterval } from './dig';
 import { createHpBar } from './hpBar';
 import { createHudState, createHudUI, createOneUpPopup, checkKillMilestone, HudState } from './hud';
 import { damagePlayer, getHealthConfig } from './physics/player';
-import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems, trySpawnDrop } from './items/itemSpawner';
+import { createItemSpawner, spawnItemsForRows, collectItems, cleanupItems } from './items/itemSpawner';
 import { createInventory, addItem, getStacks, createInventoryUI, Inventory } from './items/inventory';
 import { getItemConfig, getEnemyConfig } from './debugPanel';
+import { createDropPickupSystem, rollBatDrop } from './items/dropPickup';
 import {
   emitChargeAura, emitProjectileTrail, emitImpactExplosion,
   emitRespawnBurst, emitSpiritBombOrbit, emitTerrainDebris,
@@ -36,6 +37,7 @@ import {
   checkEnemyPlayerCollision, cleanupEnemies,
 } from './enemies/enemySystem';
 import { CANVAS_W, CANVAS_H } from './gameConfig';
+import { createPerfStats } from './perfStats';
 import { createDepthCounter } from './depthCounter';
 // HUD is imported above (hud.ts)
 import { getBiomeColors } from './biomeColors';
@@ -81,6 +83,7 @@ async function main() {
   const inventoryUI = createInventoryUI();
   const hudUI = createHudUI();
   const oneUpPopup = createOneUpPopup();
+  const perfStats = createPerfStats();
 
   // Pause overlay
   const pauseOverlay = document.createElement('div');
@@ -210,6 +213,7 @@ async function main() {
 
     const itemSpawner = createItemSpawner();
     const inventory = createInventory();
+    const dropPickup = createDropPickupSystem();
 
     // Wire debug panel item charge buttons to inventory
     debugPanel.onItemChange((itemId, delta) => {
@@ -238,6 +242,10 @@ async function main() {
       terrain.worldYOffset = Math.max(0, targetGy - Math.floor(GRID_H / 2));
       terrain.cells.fill(0);
       generateRows(terrain, terrain.worldYOffset, GRID_H, cavePlan);
+      // Sync enemy spawner so we don't dump every bat from 0 to target depth
+      enemySys.lastSpawnDepth = camera.scrollY;
+      enemySys.enemies.length = 0;
+      enemySys.damageNumbers.length = 0;
     });
 
     const cursor = { value: 0 };
@@ -257,6 +265,16 @@ async function main() {
     let aimDirY = -1;
 
     function tick(input: InputState, dt: number) {
+      // Helper: roll bat drop and spawn screen-space pickup animation
+      function handleBatDrop(worldX: number, worldY: number) {
+        const id = rollBatDrop(worldX, worldY, getItemConfig());
+        if (id) {
+          const screenX = worldX + camera.shakeX;
+          const screenY = worldY - camera.scrollY + camera.shakeY;
+          dropPickup.spawn(id, screenX, screenY);
+        }
+      }
+
       // Win sequence
       const wasPlaying = winState.phase === 'playing';
       checkWinTrigger(winState, depthCounter.getDepth());
@@ -351,7 +369,7 @@ async function main() {
         if (wr > 2) {
           const windDmg = damageEnemiesInRadius(enemySys, wbc.x, wbc.y, wr, 4, '#ffcc66');
           for (const pos of windDmg.killedPositions) {
-            trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+            handleBatDrop(pos.x, pos.y);
           }
         }
       }
@@ -421,7 +439,7 @@ async function main() {
         const bombColor = getBombDmgColor(proj.purpleOvercharge * 5);
         const explResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, craterR, explosionDmg, bombColor);
         for (const pos of explResult.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
       }
 
@@ -437,7 +455,7 @@ async function main() {
         const contactColor = getBombDmgColor(proj.purpleOvercharge * 5);
         const contactResult = damageEnemiesInRadius(enemySys, proj.x, proj.y, proj.radius, contactDmg, contactColor);
         for (const pos of contactResult.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
         if (contactResult.hit > 0) {
           detonateProj(proj);
@@ -455,7 +473,7 @@ async function main() {
       if (enemyCollision.hits > 0) {
         damagePlayer(player, enemyCollision.hits * 10);
         for (const pos of enemyCollision.killedPositions) {
-          trySpawnDrop(itemSpawner, pos.x, pos.y, getItemConfig());
+          handleBatDrop(pos.x, pos.y);
         }
       }
 
@@ -463,11 +481,15 @@ async function main() {
 
       updateShake(camera, dt);
 
-      // Age blast rings
-      for (let i = blastRings.length - 1; i >= 0; i--) {
+      // Age blast rings (swap-remove instead of splice)
+      let brLen = blastRings.length;
+      for (let i = brLen - 1; i >= 0; i--) {
         blastRings[i].age += dt;
-        if (blastRings[i].age >= 0.5) blastRings.splice(i, 1);
+        if (blastRings[i].age >= 0.5) {
+          blastRings[i] = blastRings[--brLen];
+        }
       }
+      blastRings.length = brLen;
 
       // Gold Ball magnetism: pull nearby items toward the player
       const goldStacks = getStacks(inventory, 'gold_ball');
@@ -501,9 +523,14 @@ async function main() {
       }
       cleanupItems(itemSpawner, camera.scrollY);
 
-      for (let i = projectiles.length - 1; i >= 0; i--) {
-        if (!projectiles[i].alive) projectiles.splice(i, 1);
+      // Swap-remove dead projectiles
+      let pLen = projectiles.length;
+      for (let i = pLen - 1; i >= 0; i--) {
+        if (!projectiles[i].alive) {
+          projectiles[i] = projectiles[--pLen];
+        }
       }
+      projectiles.length = pLen;
     }
 
     const mySessionId = sessionId;
@@ -629,6 +656,15 @@ async function main() {
       inventoryUI.update(inventory);
       depthCounter.update(player.y);
 
+      // Animate screen-space bat drop pickups toward player
+      const playerScreenX = player.x + sx;
+      const playerScreenY = player.y + sy;
+      dropPickup.update(
+        frameTime, playerScreenX, playerScreenY,
+        inventory, hudState,
+        (x, y) => oneUpPopup.show(x, y),
+      );
+
       // Update HUD state
       hudState.depth = depthCounter.getDepth();
       hudState.kills = enemySys.kills;
@@ -638,6 +674,15 @@ async function main() {
       }
       hudUI.update(hudState);
       winOverlay.update(winState);
+
+      // Performance stats (toggle with F3)
+      perfStats.update({
+        enemies: enemySys.enemies.length,
+        projectiles: projectiles.length,
+        damageNumbers: enemySys.damageNumbers.length,
+        items: itemSpawner.items.filter(i => i.alive).length,
+        vertOverflow: vertOverflow === true,
+      });
 
       animFrameId = requestAnimationFrame(loop);
     }
@@ -703,8 +748,13 @@ function updateCharge(input: InputState, player: Player, charge: ChargeState, pr
   }
 }
 
+const _particleUniformBuf = new Float32Array(4);
 function updateParticleUniforms(device: GPUDevice, ps: { uniformBuffer: GPUBuffer }, w: number, h: number, sx: number, sy: number) {
-  device.queue.writeBuffer(ps.uniformBuffer, 0, new Float32Array([w, h, sx, sy]));
+  _particleUniformBuf[0] = w;
+  _particleUniformBuf[1] = h;
+  _particleUniformBuf[2] = sx;
+  _particleUniformBuf[3] = sy;
+  device.queue.writeBuffer(ps.uniformBuffer, 0, _particleUniformBuf);
 }
 
 main();

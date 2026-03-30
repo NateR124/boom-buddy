@@ -47,6 +47,11 @@ function getEnemyHp(scrollY: number, config: EnemyConfig): number {
 /**
  * Spawn new bats based on player descent.
  */
+// Safety cap: max spawn checks per call. Prevents lag spikes or edge cases
+// from dumping hundreds of bats in a single frame. Normal gameplay advances
+// a few pixels per frame, so this never triggers during regular play.
+const MAX_SPAWN_CHECKS = 40;
+
 export function spawnEnemies(
   sys: EnemySystem,
   scrollY: number,
@@ -54,8 +59,10 @@ export function spawnEnemies(
   canvasHeight: number,
   config: EnemyConfig,
 ): void {
-  while (scrollY - sys.lastSpawnDepth >= config.spawnInterval) {
+  let checks = 0;
+  while (scrollY - sys.lastSpawnDepth >= config.spawnInterval && checks < MAX_SPAWN_CHECKS) {
     sys.lastSpawnDepth += config.spawnInterval;
+    checks++;
 
     const depth = sys.lastSpawnDepth;
     const chance = Math.min(config.baseSpawnChance + (depth / 1000) * config.depthChanceBonus, 0.95);
@@ -74,6 +81,10 @@ export function spawnEnemies(
 
       sys.enemies.push({ x, y, vx: 0, vy: 0, alive: true, fromLeft, hp, maxHp: hp });
     }
+  }
+  // If we hit the cap, fast-forward to avoid repeating the burst next frame
+  if (checks >= MAX_SPAWN_CHECKS && scrollY - sys.lastSpawnDepth >= config.spawnInterval) {
+    sys.lastSpawnDepth = scrollY;
   }
 }
 
@@ -111,13 +122,15 @@ export function updateEnemies(
     e.y += (dy / dist) * speed * chaseMult * dt;
   }
 
-  // Age damage numbers and remove expired
-  for (let i = sys.damageNumbers.length - 1; i >= 0; i--) {
+  // Age damage numbers and remove expired (swap-remove to avoid O(n) splice)
+  let dnLen = sys.damageNumbers.length;
+  for (let i = dnLen - 1; i >= 0; i--) {
     sys.damageNumbers[i].age += dt;
     if (sys.damageNumbers[i].age >= DAMAGE_NUMBER_LIFETIME) {
-      sys.damageNumbers.splice(i, 1);
+      sys.damageNumbers[i] = sys.damageNumbers[--dnLen];
     }
   }
+  sys.damageNumbers.length = dnLen;
 }
 
 function applyDamage(sys: EnemySystem, e: Enemy, damage: number, color = '#ff4444'): boolean {
@@ -244,18 +257,43 @@ export function damageEnemiesWithProjectiles(
  * Remove dead enemies far from camera.
  */
 export function cleanupEnemies(sys: EnemySystem, scrollY: number, canvasHeight: number): void {
-  sys.enemies = sys.enemies.filter(
-    e => e.alive && e.y > scrollY - 200 && e.y < scrollY + canvasHeight + 400
-  );
+  // In-place compaction avoids allocating a new array every frame
+  const minY = scrollY - 200;
+  const maxY = scrollY + canvasHeight + 400;
+  let len = sys.enemies.length;
+  for (let i = len - 1; i >= 0; i--) {
+    const e = sys.enemies[i];
+    if (!e.alive || e.y <= minY || e.y >= maxY) {
+      sys.enemies[i] = sys.enemies[--len];
+    }
+  }
+  sys.enemies.length = len;
 }
 
-/** Get damage number rendering data */
-export function getDamageNumberRenderData(sys: EnemySystem): { x: number; y: number; amount: number; alpha: number; color: string }[] {
-  return sys.damageNumbers.map(dn => ({
-    x: dn.x,
-    y: dn.y - (dn.age / DAMAGE_NUMBER_LIFETIME) * DAMAGE_NUMBER_RISE,
-    amount: dn.amount,
-    alpha: 1 - dn.age / DAMAGE_NUMBER_LIFETIME,
-    color: dn.color,
-  }));
+/** Damage number render entry — reused pool to avoid per-frame allocation */
+export interface DamageNumberRender {
+  x: number; y: number; amount: number; alpha: number; color: string;
+}
+
+const dnRenderPool: DamageNumberRender[] = [];
+
+/** Get damage number rendering data (reuses pooled array) */
+export function getDamageNumberRenderData(sys: EnemySystem): DamageNumberRender[] {
+  const count = sys.damageNumbers.length;
+  // Grow pool if needed
+  while (dnRenderPool.length < count) {
+    dnRenderPool.push({ x: 0, y: 0, amount: 0, alpha: 0, color: '' });
+  }
+  for (let i = 0; i < count; i++) {
+    const dn = sys.damageNumbers[i];
+    const entry = dnRenderPool[i];
+    entry.x = dn.x;
+    entry.y = dn.y - (dn.age / DAMAGE_NUMBER_LIFETIME) * DAMAGE_NUMBER_RISE;
+    entry.amount = dn.amount;
+    entry.alpha = 1 - dn.age / DAMAGE_NUMBER_LIFETIME;
+    entry.color = dn.color;
+  }
+  // Return a view of the pool (caller iterates only up to count)
+  dnRenderPool.length = count;
+  return dnRenderPool;
 }
